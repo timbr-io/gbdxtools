@@ -345,6 +345,8 @@ class Catalog(object):
 
         if filters:
             postdata['filters'] = filters
+        else:
+            postdata['filters'] = []
 
         # generate elasticsearch query string
         vectors_int = vectors.Vectors(self.interface)
