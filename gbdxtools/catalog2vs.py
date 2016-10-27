@@ -14,6 +14,9 @@ Explicitly Supported:
     - identifier field in filters
     - sensorPlatformName mapping
     - multiple clauses in one filter, but not negation operators (!=, <>)
+
+Differences:
+    - integer fields will not work in VS if value is set as double
 """
 
 import json
@@ -28,7 +31,7 @@ fieldmap = {
     'cloudCover':         'CLOUDCOVER_int',
     'multiResolution':    'AVMULTIRES_dbl',
     #'vendorName':          None,
-    'offNadirAngle':      'AVOFFNADIR_int',
+    'offNadirAngle':      'MXOFFNADIR_int',  # AVOFFNADIR_int
     'panResolution':      'AVPANRES_dbl',
     'catalogID':          'CATALOGID',
     'identifier':         'CATALOGID',
@@ -76,9 +79,12 @@ def catalog2vs(input_json):
 
     # convert wkt to search bounds
     try:
-        searchAreaWkt = input_dict.get('searchAreaWkt')
-        search_area_polygon = geometry.from_wkt(searchAreaWkt)
-        left, lower, right, upper = search_area_polygon.bounds
+        if not input_dict.get('searchAreaWkt'):
+            left, lower, right, upper = -180, -90, 180, 90
+        else:
+            searchAreaWkt = input_dict.get('searchAreaWkt')
+            search_area_polygon = geometry.from_wkt(searchAreaWkt)
+            left, lower, right, upper = search_area_polygon.bounds
     except:
         raise Exception('Unable to parse WKT string.')
 
