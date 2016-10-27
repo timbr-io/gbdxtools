@@ -137,8 +137,11 @@ class Vectors(object):
     
         '''
 
-        search_area_polygon = geometry.from_wkt(searchAreaWkt)
-        left, lower, right, upper = search_area_polygon.bounds
+        if not searchAreaWkt:
+            left, lower, right, upper = -180, -90, 180, 90
+        else:
+            search_area_polygon = geometry.from_wkt(searchAreaWkt)
+            left, lower, right, upper = search_area_polygon.bounds
 
         params = {
             "q": query,
