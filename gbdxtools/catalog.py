@@ -10,6 +10,8 @@ import requests
 import json
 import datetime
 from . import catalog_search_aoi
+from . import catalog2vs
+from . import vectors
 
 class Catalog(object):
 
@@ -24,6 +26,7 @@ class Catalog(object):
         '''
         self.gbdx_connection = interface.gbdx_connection
         self.logger = interface.logger
+        self.interface = interface
 
     def get_strip_footprint_wkt(self, catID):
         '''Retrieves the strip footprint WKT string given a cat ID.
@@ -298,6 +301,55 @@ class Catalog(object):
             results = r.json()['results']
         
         return results
+
+    def search_via_vectors(self, searchAreaWkt=None, filters=None, startDate=None, endDate=None, types=None):
+        ''' Perform a catalog search, but via the vectors api
+
+        Args:
+            searchAreaWkt: WKT Polygon of area to search.  Optional.
+            filters: Array of filters.  Optional.  Example:
+                [  
+                    "(sensorPlatformName = 'WORLDVIEW01' OR sensorPlatformName ='QUICKBIRD02')",
+                    "cloudCover < 10",
+                    "offNadirAngle < 10"
+                ]
+            startDate: string.  Optional.  Example: "2004-01-01T00:00:00.000Z"
+            endDate: string.  Optional.  Example: "2004-01-01T00:00:00.000Z"
+            types: Array of types to search for.  Optional.  Example (and default):  ["Acquisition"]
+
+        Returns:
+            catalog search resultset
+        '''
+        # Default to search for Acquisition type objects.
+        if not types:
+            types = ['Acquisition']
+
+        # validation:  we must have either a WKT or one-week of time window
+        if startDate:
+            startDateTime = datetime.datetime.strptime(startDate, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+        if endDate:
+            endDateTime = datetime.datetime.strptime(endDate, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+        if startDate and endDate:
+            diff = endDateTime - startDateTime
+            if diff.days < 0:
+                raise Exception("startDate must come before endDate.")
+
+        postdata = {  
+            "searchAreaWkt": searchAreaWkt,
+            "types": types, 
+            "startDate": startDate,
+            "endDate": endDate,
+        }
+
+        if filters:
+            postdata['filters'] = filters
+
+        # generate elasticsearch query string
+        vectors_int = vectors.Vectors(self.interface)
+        query = catalog2vs.catalog2vs(json.dumps(postdata))
+        return vectors_int.query(searchAreaWkt, query, count=1000)
 
     def get_most_recent_images(self, results, types=[], sensors=[], N=1):
         ''' Return the most recent image 
