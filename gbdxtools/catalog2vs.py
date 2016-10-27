@@ -8,19 +8,28 @@ Goal:
 Not Supported:
     - timestamp query in filters
     - implied traversal in filters
+    - string matching:  "name like 'D%'"
 
 Explicitly Supported:
     - single clause <, >, <=, >=, =, !=, == filters
     - identifier field in filters
     - sensorPlatformName mapping
-    - multiple clauses in one filter, but not negation operators (!=, <>)
+    - multiple clauses in one filter, but not with negation operators (!=, <>)
 
 Differences:
-    - integer fields will not work in VS if value is set as double
+    - integer fields will not work in VS if value is set as double.  Double works fine either way
+    - sunAzimuth value seems not correct in VS.
+    - return floats & ints instead of stringified values
+
+TODO for migration:
+	- add 'available' flag or compute it
+	- figure out products
+	- add 'ordered' flag or compute it
 """
 
 import json
 from pygeoif import geometry
+from geomet import wkt
 
 fieldmap = {
     'sunElevation':       'AVSUNELEV_dbl',
@@ -47,6 +56,13 @@ sensormap = {
     'QUICKBIRD02': 'QB02',
     'GEOEYE01': 'GE01'
 }
+sensormap_inv = {
+	'WV01': 'WORLDVIEW01',
+	'WV02': 'WORLDVIEW02',
+	'WV03': 'WORLDVIEW03',
+	'QB02': 'QUICKBIRD02',
+	'GE01': 'GEOEYE01'
+}
 
 def catalog2vs(input_json):
     """
@@ -59,7 +75,7 @@ def catalog2vs(input_json):
             "_acquisition.productLevel = 'LV1B'",
             "sensorPlatformName = 'WORLDVIEW02'",
             "targetAzimuth < 250",
-            "targetAzimuth < 250 OR targetAzimuth > 255"
+            "(targetAzimuth < 250 OR targetAzimuth > 255)"
         ],
         "tagResults":false,
         "types":[ 
@@ -137,6 +153,58 @@ def catalog2vs(input_json):
     filter_strs = [i for i in filter_strs if i]  # keep only non-None items
     query = ' AND '.join(filter_strs)
     return query
+
+
+def vsResult2CatalogResult(record):
+    """
+    Convert a vector object received from the VectorService into the json/python representation
+    of catalog/v1.
+
+    graph edges are omitted because they are not known.
+    available is always = False, because it is not known.
+    owner is empty, because it is not known.
+    
+    """
+    new_type = ''
+    vendorname = ''
+    for item_type in record['properties']['item_type']:
+    	if item_type in list(sensormap.values()):
+    		new_type = 'DigitalGlobeAcquisition'
+    		vendorname = 'DigitalGlobe'
+
+    # Convert potential multipolygon to polygon
+    geojson = record['geometry']
+    p = geometry.from_wkt(wkt.dumps(geojson))
+    if p._type == 'MultiPolygon':
+    	footprintWkt = p.geoms[0].wkt
+    elif p._type == 'Polygon':
+    	footprintWkt = p.wkt
+
+    new_record = {
+      "identifier": record['properties']['attributes']['CATALOGID'],
+      "owner": "",
+      "type": new_type,
+      "properties": {
+        "sunElevation": record['properties']['attributes']['AVSUNELEV_dbl'],
+        "targetAzimuth": record['properties']['attributes']['AVTARGETAZ_dbl'],
+        "sensorPlatformName": sensormap_inv[record['properties']['attributes']['PLATFORM']],
+        "browseURL": record['properties']['attributes']['BROWSEURL'],
+        "sunAzimuth": record['properties']['attributes']['AVSUNAZIM_dbl'],
+        "footprintWkt": footprintWkt,
+        "cloudCover": record['properties']['attributes']['CLOUDCOVER_int'],
+        "available": "false",
+        "multiResolution": record['properties']['attributes']['AVMULTIRES_dbl'],
+        "vendorName": vendorname,
+        "offNadirAngle": record['properties']['attributes']['MXOFFNADIR_int'],
+        "panResolution": record['properties']['attributes']['AVPANRES_dbl'],
+        "catalogID": record['properties']['attributes']['CATALOGID'],
+        "imageBands": record['properties']['attributes']['IMAGEBANDS'],
+        "timestamp": record['properties']['item_date']
+      }
+    }
+
+    return new_record
+
 
 
 
