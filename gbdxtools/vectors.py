@@ -28,7 +28,7 @@ class Vectors(object):
         self.get_url = 'https://vector.geobigdata.io/insight-vector/api/vector/%s/'
         self.create_url = 'https://vector.geobigdata.io/insight-vector/api/vectors'
 
-    def create(self,vectors):
+    def create(self, vectors, index_name=None):
         """
         Create a vectors in the vector service.
 
@@ -55,6 +55,8 @@ class Vectors(object):
 
             item_type and ingest_source are required.
 
+            index_name: Name of the index to place the vector into.  Default is 'vector-web-s'
+
         Returns:
             a list of IDs of the vectors created
         """
@@ -72,7 +74,11 @@ class Vectors(object):
             if not 'ingest_source' in list(vector['properties'].keys()):
                 raise Exception('Vector does not contain "ingest_source".')
 
-        r = self.gbdx_connection.post(self.create_url, data=json.dumps(vectors))
+        url = self.create_url
+        if index_name:
+            url = url + '/' + index_name
+
+        r = self.gbdx_connection.post(url, data=json.dumps(vectors))
         r.raise_for_status()
         return r.json()
 
