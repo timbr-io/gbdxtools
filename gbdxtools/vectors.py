@@ -121,6 +121,25 @@ class Vectors(object):
         r.raise_for_status()
         return r.json()
 
+    def get_via_query(self,ID):
+        '''Retrieves a vector via query if you don't know the index it's in.
+
+        Args:
+            ID (str): ID of the vector object
+
+        Returns:
+            record (dict): A dict object identical to the json representation of the catalog record
+            Only returns the first record found if the same ID exists in multiple indexes.
+            Returns None if record not found.
+        '''
+
+        query_str = "id:%s" % ID
+        r = self.query(None,query_str)
+        if not r:
+            return None
+        else:
+            return r[0]
+
 
     def query(self, searchAreaWkt, query, count=100):
         '''
