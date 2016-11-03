@@ -302,6 +302,21 @@ class Catalog(object):
         
         return results
 
+    def get_via_vectors(self, catID, includeRelationships=False):
+        '''Retrieves the strip footprint WKT string given a cat ID.
+
+        Args:
+            catID (str): The source catalog ID from the platform catalog.
+            includeRelationships (bool): Ignored [deprecated]
+
+        Returns:
+            record (dict): A dict object identical to the json representation of the catalog record
+        '''
+        
+        vectors_int = vectors.Vectors(self.interface)
+        r = vectors_int.get_via_query(catID)
+        return catalog2vs.vsResult2CatalogResult_new_schema(r)
+
     def search_via_vectors(self, searchAreaWkt=None, filters=None, startDate=None, endDate=None, types=None):
         ''' Perform a catalog search, but via the vectors api
 

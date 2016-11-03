@@ -206,6 +206,57 @@ def vsResult2CatalogResult(record):
     return new_record
 
 
+def vsResult2CatalogResult_new_schema(record):
+    """
+    Convert a vector object received from the VectorService into the json/python representation
+    of catalog/v1.
+
+    graph edges are omitted because they are not known.
+    available is always = False, because it is not known.
+    owner is empty, because it is not known.
+    
+    """
+    new_type = ''
+    vendorname = ''
+    for item_type in record['properties']['item_type']:
+        if item_type in list(sensormap.values()):
+            new_type = 'DigitalGlobeAcquisition'
+            vendorname = 'DigitalGlobe'
+
+    # Convert potential multipolygon to polygon
+    geojson = record['geometry']
+    p = geometry.from_wkt(wkt.dumps(geojson))
+    if p._type == 'MultiPolygon':
+        footprintWkt = p.geoms[0].wkt
+    elif p._type == 'Polygon':
+        footprintWkt = p.wkt
+
+    new_record = {
+      "identifier": record['properties']['attributes']['catalogID'],
+      "owner": "",
+      "type": new_type,
+      "properties": {
+        "sunElevation": record['properties']['attributes']['sunElevation_dbl'],
+        "targetAzimuth": record['properties']['attributes']['targetAzimuth_dbl'],
+        "sensorPlatformName": sensormap_inv[record['properties']['attributes']['sensorPlatformName']],
+        "browseURL": record['properties']['attributes']['browseURL'],
+        "sunAzimuth": record['properties']['attributes']['sunAzimuth_dbl'],
+        "footprintWkt": footprintWkt,
+        "cloudCover": record['properties']['attributes']['cloudCover_int'],
+        "available": "false",
+        "multiResolution": record['properties']['attributes']['multiResolution_dbl'],
+        "vendorName": vendorname,
+        "offNadirAngle": record['properties']['attributes']['offNadirAngle_int'],
+        "panResolution": record['properties']['attributes']['panResolution_dbl'],
+        "catalogID": record['properties']['attributes']['catalogID'],
+        "imageBands": record['properties']['attributes']['imageBands'],
+        "timestamp": record['properties']['item_date']
+      }
+    }
+
+    return new_record
+
+
 
 
 
