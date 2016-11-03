@@ -355,13 +355,9 @@ class Catalog(object):
             "searchAreaWkt": searchAreaWkt,
             "types": types, 
             "startDate": startDate,
-            "endDate": endDate,
+            "endDate": endDate
+            "filters": filters if filters else []
         }
-
-        if filters:
-            postdata['filters'] = filters
-        else:
-            postdata['filters'] = []
 
         # generate elasticsearch query string
         vectors_int = vectors.Vectors(self.interface)
