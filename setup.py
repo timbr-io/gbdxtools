@@ -29,7 +29,8 @@ setup(name='gbdxtools',
                         'ndg-httpsclient==0.4.2',
                         'six==1.10.0',
                         'future==0.15.2',
-                        'geomet==0.1.1'],
+                        'geomet==0.1.1'
+                        'shapely'],
       setup_requires=['pytest-runner'],
       tests_require=['pytest','vcrpy']
       )
