@@ -6,10 +6,19 @@ from xml.etree import cElementTree as ET
 import os.path
 import signal
 signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+import warnings
+warnings.filterwarnings('ignore')
+
+try:
+    from io import BytesIO
+except ImportError:
+    from StringIO import cStringIO as BytesIO
 
 import requests
 
+from shapely.geometry import box
 import rasterio
+from rasterio.io import MemoryFile
 import dask
 import dask.array as da
 import dask.bag as db
@@ -17,84 +26,102 @@ from dask.delayed import delayed
 import numpy as np
 from scipy.sparse import dok_matrix
 idaho_id = "59f87923-7afa-4588-9f59-dc5ad8b821b0"
-threaded_get = partial(dask.threaded.get, num_workers=8)
+import threading
+threaded_get = partial(dask.threaded.get, num_workers=4)
 
 import pycurl
 _curl_pool = defaultdict(pycurl.Curl)
 
+def index_to_slice(ind, rowstep, colstep):
+    i, j = ind
+    window = ((i * rowstep, (i + 1) * rowstep), (j * colstep, (j + 1) * colstep))
+    return window
+
+def generate_blocks(window, blocksize):
+    rowsize, colsize = blocksize
+    nrowblocks = window.num_rows / rowsize
+    ncolblocks = window.num_cols / colsize
+    for ind in np.ndindex((nrowblocks, ncolblocks)):
+        yield index_to_slice(ind, nrowblocks, ncolblocks)
+
+@delayed
+def load_url(url, bands=8):
+    thread_id = threading.current_thread().ident
+    _curl = _curl_pool[thread_id]
+    buf = BytesIO()
+    _curl.setopt(_curl.URL, url)
+    _curl.setopt(_curl.WRITEDATA, buf)
+    _curl.setopt(pycurl.NOSIGNAL, 1)
+    _curl.perform()
+
+    with MemoryFile(buf.getvalue()) as memfile:
+      try:
+          with memfile.open(driver="GTiff") as dataset:
+              arr = dataset.read()
+      except (TypeError, rasterio.RasterioIOError) as e:
+          print("Errored on {} with {}".format(url, e))
+          arr = np.zeros([bands,256,256], dtype=np.float32)
+          _curl.close()
+          del _curl_pool[thread_id]
+    return arr
+
 class IpeImage(da.Array):
     def __init__(self, idaho_id, bounds=None, node="TOAReflectance", **kwargs):
         self._idaho_id = idaho_id
+        self._bounds = bounds
         self._node_id = node
         self._level = 0
         self._vrt = requests.get(self.vrt).content
         self._cfg = self._config_dask()
-        
-        print self._cfg["chunks"]
-        
         super(IpeImage, self).__init__(**self._cfg)
-        print self._cfg["chunks"]
         
     @property
     def vrt(self):
         return "http://idaho.timbr.io/{idaho_id}/{node}/{level}.vrt".format(idaho_id=self._idaho_id, 
                                                                             node=self._node_id,
                                                                             level=self._level)
-    
-    @delayed
-    def load_url(self, url, bands=8):
-        thread_id = threading.current_thread().ident
-        _curl = _curl_pool[thread_id]
-        buf = BytesIO()
-        _curl.setopt(_curl.URL, url)
-        _curl.setopt(_curl.WRITEDATA, buf)
-        _curl.setopt(pycurl.NOSIGNAL, 1)
-        _curl.perform()
 
-        with MemoryFile(buf.getvalue()) as memfile:
-            try:
-                with memfile.open(driver="GTiff") as dataset:
-                    arr = dataset.read()
-            except (TypeError, rasterio.RasterioIOError) as e:
-                print("Errored on {} with {}".format(url, e))
-                arr = np.zeros([bands] + self._cfg["chunks"], dtype=self._cfg["dtype"])
-                _curl.close()
-                del _curl_pool[thread_id]
-        return arr
-    
     def read(self, bands=None):
-        return self.compute(get=threaded_get)
+        print 'fetching data'
+        arr = self.compute(get=threaded_get)
+        if bands is not None:
+            arr = arr[bands, ...]
+        return arr
+            
     
     @contextmanager
     def open(self, *args, **kwargs):
         with rasterio.open(self.vrt, *args, **kwargs) as src:
             yield src
 
-    def _config_dask(self, aoi=None):
+    def _config_dask(self):
         with self.open() as src:
             nbands = len(src.indexes)
-            cfg = {"shape": tuple([nbands] + list(src.shape)), "dtype": src.dtypes[0], 
-                   "chunks": tuple([len(src.block_shapes)] + list(src.block_shapes[0]))}
+            block_shapes = [(256, 256) for bs in src.block_shapes]
+            window = src.window(*self._bounds)
+            urls = self._collect_urls(self._vrt, window, block_shapes)
+            cfg = {"shape": tuple([nbands] + [256*len(urls[0]), 256*len(urls)]), 
+                   "dtype": src.dtypes[0], 
+                   "chunks": tuple([len(src.block_shapes)] + [256, 256])}
             self._meta = src.meta
-        urls = self._collect_urls(self._vrt)
-        img = self._build_array(urls, bands=nbands, chunks=[nbands]+list(cfg["chunks"]), dtype=cfg["dtype"])
+        img = self._build_array(urls, bands=nbands, chunks=cfg["chunks"], dtype=cfg["dtype"])
         cfg["name"] = img.name
         cfg["dask"] = img.dask
         
         return cfg
     
     def _build_array(self, urls, bands=8, chunks=(1,256,256), dtype=np.float32):
-        total = sum([len(x) for x in urls])
         buf = da.concatenate(
-            [da.concatenate([da.from_delayed(self.load_url(url, bands=bands), chunks, dtype) for u, url in enumerate(row)],
+            [da.concatenate([da.from_delayed(load_url(url, bands=bands), chunks, dtype) for u, url in enumerate(row)],
                         axis=1) for r, row in enumerate(urls)], axis=2)
+
         return buf
     
     
-    def _collect_urls(self, xml, aoi=None):
+    def _collect_urls(self, xml, window, block_shapes):
         root = ET.fromstring(xml)
-        if aoi is not None:
-            target = box(*aoi.bounds)
+        if self._bounds is not None:
+            target = box(*self._pixel_bounds(window, block_shapes))
             for band in root.findall("VRTRasterBand"):
                 for source in band.findall("ComplexSource"):
                     rect = source.find("DstRect")
@@ -105,6 +132,7 @@ class IpeImage(da.Array):
 
         urls = list(set(item.text for item in root.iter("SourceFilename")
                     if item.text.startswith("http://")))
+
         chunks = []
         for url in urls:
             head, _ = os.path.splitext(url)
@@ -119,3 +147,22 @@ class IpeImage(da.Array):
                 for key, it in groupby(sorted(chunks, key=lambda x: x[0]), lambda x: x[0])]
         return grid
 
+    def _pixel_bounds(self, window, block_shapes, preserve_blocksize=True):
+        if preserve_blocksize:
+            window = rasterio.windows.round_window_to_full_blocks(window, block_shapes)
+        roi = window.flatten()
+        return [roi[0], roi[1], roi[0] + roi[2], roi[1] + roi[3]]
+
+if __name__ == '__main__':
+    img = IpeImage('58e9febc-0b04-4143-97fb-95436fcf3ed6', bounds=[-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023])
+    with img.open() as src:
+        assert isinstance(src, rasterio.DatasetReader)
+
+    rgb = img[[4,2,1], ...] # should not fetch
+    assert isinstance(rgb, da.Array)
+    print rgb.shape
+  
+    data = img.read(bands=[4,2,1]) # should fetch
+    assert isinstance(data, np.ndarray)
+    assert len(data.shape) == 3
+    assert data.shape[0] == 3

@@ -1,7 +1,7 @@
 """
-GBDX IDAHO Interface.
+GBDX Catalog Image Interface.
 
-Contact: nate.ricklin@digitalglobe.com
+Contact: chris.helm@digitalglobe.com
 """
 from __future__ import print_function
 from __future__ import division
@@ -10,12 +10,9 @@ from builtins import object
 from past.utils import old_div
 
 from shapely.wkt import loads
-import codecs
-import json
-import os
-import requests
+from shapely.geometry import box
 
-from gbdxtools.catalog import Catalog
+from gbdxtools.ipe_image import IpeImage
 
 class Image(object):
     """ 
@@ -78,13 +75,19 @@ class Image(object):
             src = ET.SubElement(band, "SimpleSource")
             ET.SubElement(src, "SourceFilename").text = "HDF5:{}://{}_{}_{}".format(self._filename, self._gid, self.node, self.level)
             ET.SubElement(src, "SourceBand").text =str(i)
-            ET.SubElement(src, "SrcRect", {"xOff": "0", "yOff": "0",
-                                           "xSize": cols, "ySize": rows})
-            ET.SubElement(src, "DstRect", {"xOff": "0", "yOff": "0",
-                                           "xSize": cols, "ySize": rows})
-
-            ET.SubElement(src, "SourceProperties", {"RasterXSize": cols, "RasterYSize": rows,
-                                                    "BlockXSize": "128", "BlockYSize": "128", "DataType": self._src.dtypes[i-1].title()})
+            ET.SubElement(src, "SrcRect", { "xOff": "0", 
+                                            "yOff": "0",
+                                            "xSize": cols, 
+                                            "ySize": rows})
+            ET.SubElement(src, "DstRect", { "xOff": "0", 
+                                            "yOff": "0",
+                                            "xSize": cols, 
+                                            "ySize": rows})
+            ET.SubElement(src, "SourceProperties", {"RasterXSize": cols, 
+                                                    "RasterYSize": rows,
+                                                    "BlockXSize": "256", 
+                                                    "BlockYSize": "256", 
+                                                    "DataType": self._src.dtypes[i-1].title()})
         vrt_str = ET.tostring(vrt)
 
         with open(self.vrt, "w") as f:
@@ -92,32 +95,34 @@ class Image(object):
 
         return self.vrt
 
-    def aoi(self, bbox=None, geometry=None, pansharpen=False):
-        if bbox is None:
-            print('Missing either a bbox or a geometry to define an AOI')
-            return None
+    def aoi(self, bbox):
+        _area = box(*bbox)
+        intersections = {}
+        for part in self.metadata['properties']['parts']:
+            for key, item in part.iteritems():
+                geom = box(*item['bounds'])
+                if geom.intersects(_area):
+                    intersections[key] = item
+
+        if 'WORLDVIEW_8_BAND' in intersections:
+            md = intersections['WORLDVIEW_8_BAND']
+            return IpeImage(md['imageId'], bounds=bbox)
         else:
-            return AOI(self, bbox)
-            #W, S, E, N = (-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023)
-            #chip_geo = 'houston_geo.tif'
-            #self.interface.idaho.get_chip(coordinates=[W, S, E, N], catid = catid, chip_type='PAN', filename=chip_geo)
+            return None
 
-
-class AOI(object):
-    def __init__(self, image, bbox):
-      self.image = image
-      self.bbox = bbox
-      self.metadata = metadata
-       
 
 if __name__ == '__main__': 
     from gbdxtools import Interface
     import json
+    import rasterio
     gbdx = Interface()
 
     cat_id = '104001001838A000'
     img = gbdx.image(cat_id)
 
     #print(json.dumps(img.metadata, indent=4))
-    img.vrt()
-    img.aoi()
+
+    aoi = img.aoi([-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023])
+    with aoi.open() as src:
+        assert isinstance(src, rasterio.DatasetReader)
+
