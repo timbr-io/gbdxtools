@@ -95,7 +95,7 @@ class Image(object):
 
         return self.vrt
 
-    def aoi(self, bbox):
+    def aoi(self, bbox, image_type='WORLDVIEW_8_BAND'):
         _area = box(*bbox)
         intersections = {}
         for part in self.metadata['properties']['parts']:
@@ -104,8 +104,8 @@ class Image(object):
                 if geom.intersects(_area):
                     intersections[key] = item
 
-        if 'WORLDVIEW_8_BAND' in intersections:
-            md = intersections['WORLDVIEW_8_BAND']
+        if image_type in intersections:
+            md = intersections[image_type]
             return IpeImage(md['imageId'], bounds=bbox)
         else:
             return None

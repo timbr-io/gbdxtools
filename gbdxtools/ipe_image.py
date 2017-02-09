@@ -71,9 +71,11 @@ class IpeImage(da.Array):
         self._bounds = bounds
         self._node_id = node
         self._level = 0
+        self._tile_size = kwargs.get('tile_size', 256)
         self._vrt = requests.get(self.vrt).content
-        self._cfg = self._config_dask()
+        self._cfg = self._config_dask(bounds=bounds)
         super(IpeImage, self).__init__(**self._cfg)
+        self._cache = None
         
     @property
     def vrt(self):
@@ -82,27 +84,35 @@ class IpeImage(da.Array):
                                                                             level=self._level)
 
     def read(self, bands=None):
-        print 'fetching data'
-        arr = self.compute(get=threaded_get)
+        if self._cache is not None:
+            arr = self._cache
+        else:
+            print 'fetching data'
+            arr = self.compute(get=threaded_get)
+            self._cache = arr
         if bands is not None:
             arr = arr[bands, ...]
         return arr
-            
+
+    def aoi(self, bounds):
+        return IpeImage(self._idaho_id, bounds=bounds)
     
     @contextmanager
     def open(self, *args, **kwargs):
         with rasterio.open(self.vrt, *args, **kwargs) as src:
             yield src
 
-    def _config_dask(self):
+    def _config_dask(self, bounds=None):
         with self.open() as src:
             nbands = len(src.indexes)
-            block_shapes = [(256, 256) for bs in src.block_shapes]
-            window = src.window(*self._bounds)
-            urls = self._collect_urls(self._vrt, window, block_shapes)
-            cfg = {"shape": tuple([nbands] + [256*len(urls[0]), 256*len(urls)]), 
+            px_bounds = None
+            if bounds is not None:
+                window = src.window(*bounds)
+                px_bounds = self._pixel_bounds(window, src.block_shapes)
+            urls = self._collect_urls(self._vrt, px_bounds=px_bounds)
+            cfg = {"shape": tuple([nbands] + [self._tile_size*len(urls[0]), self._tile_size*len(urls)]), 
                    "dtype": src.dtypes[0], 
-                   "chunks": tuple([len(src.block_shapes)] + [256, 256])}
+                   "chunks": tuple([len(src.block_shapes)] + [self._tile_size, self._tile_size])}
             self._meta = src.meta
         img = self._build_array(urls, bands=nbands, chunks=cfg["chunks"], dtype=cfg["dtype"])
         cfg["name"] = img.name
@@ -115,13 +125,12 @@ class IpeImage(da.Array):
             [da.concatenate([da.from_delayed(load_url(url, bands=bands), chunks, dtype) for u, url in enumerate(row)],
                         axis=1) for r, row in enumerate(urls)], axis=2)
 
-        return buf
+        return buf    
     
-    
-    def _collect_urls(self, xml, window, block_shapes):
+    def _collect_urls(self, xml, px_bounds=None):
         root = ET.fromstring(xml)
-        if self._bounds is not None:
-            target = box(*self._pixel_bounds(window, block_shapes))
+        if px_bounds is not None:
+            target = box(*px_bounds)
             for band in root.findall("VRTRasterBand"):
                 for source in band.findall("ComplexSource"):
                     rect = source.find("DstRect")
@@ -148,6 +157,7 @@ class IpeImage(da.Array):
         return grid
 
     def _pixel_bounds(self, window, block_shapes, preserve_blocksize=True):
+        #block_shapes = [(256, 256) for bs in src.block_shapes]
         if preserve_blocksize:
             window = rasterio.windows.round_window_to_full_blocks(window, block_shapes)
         roi = window.flatten()
