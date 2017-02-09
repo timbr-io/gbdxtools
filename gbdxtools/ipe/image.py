@@ -32,6 +32,8 @@ threaded_get = partial(dask.threaded.get, num_workers=4)
 import pycurl
 _curl_pool = defaultdict(pycurl.Curl)
 
+from gbdxtools.ipe.vrt import get_vrt
+
 def index_to_slice(ind, rowstep, colstep):
     i, j = ind
     window = ((i * rowstep, (i + 1) * rowstep), (j * colstep, (j + 1) * colstep))
@@ -72,16 +74,15 @@ class IpeImage(da.Array):
         self._node_id = node
         self._level = 0
         self._tile_size = kwargs.get('tile_size', 256)
-        self._vrt = requests.get(self.vrt).content
+        with open(self.vrt) as f:
+            self._vrt = f.read()
         self._cfg = self._config_dask(bounds=bounds)
         super(IpeImage, self).__init__(**self._cfg)
         self._cache = None
         
     @property
     def vrt(self):
-        return "http://idaho.timbr.io/{idaho_id}/{node}/{level}.vrt".format(idaho_id=self._idaho_id, 
-                                                                            node=self._node_id,
-                                                                            level=self._level)
+        return get_vrt(self._idaho_id, node=self._node_id, level=self._level)
 
     def read(self, bands=None):
         if self._cache is not None:
@@ -96,6 +97,23 @@ class IpeImage(da.Array):
 
     def aoi(self, bounds):
         return IpeImage(self._idaho_id, bounds=bounds)
+
+    def geotiff(self, path, dtype=None):
+        print self.shape
+        arr = self.read()
+        with self.open() as src:
+            meta = src.meta.copy()
+            meta.update({'driver': 'GTiff'})
+
+            if dtype is not None:
+                meta.update({'dtype': dtype})
+
+            with rasterio.open(path, "w", **meta) as dst:
+                dst_data = src.read()
+                if dtype is not None:
+                    dst_data = dst_data.astype(dtype)
+                dst.write(dst_data)
+        return path
     
     @contextmanager
     def open(self, *args, **kwargs):
@@ -156,7 +174,7 @@ class IpeImage(da.Array):
                 for key, it in groupby(sorted(chunks, key=lambda x: x[0]), lambda x: x[0])]
         return grid
 
-    def _pixel_bounds(self, window, block_shapes, preserve_blocksize=True):
+    def _pixel_bounds(self, window, block_shapes, preserve_blocksize=False):
         #block_shapes = [(256, 256) for bs in src.block_shapes]
         if preserve_blocksize:
             window = rasterio.windows.round_window_to_full_blocks(window, block_shapes)

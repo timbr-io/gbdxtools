@@ -12,7 +12,7 @@ from past.utils import old_div
 from shapely.wkt import loads
 from shapely.geometry import box
 
-from gbdxtools.ipe_image import IpeImage
+from gbdxtools.ipe.image import IpeImage
 
 class Image(object):
     """ 
