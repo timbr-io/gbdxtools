@@ -104,10 +104,20 @@ class Image(object):
                 if geom.intersects(_area):
                     intersections[key] = item
 
-        if image_type in intersections:
+        if not len(intersections.keys()):
+            print('Failed to find data within the given BBOX')
+            return None
+
+        if image_type == 'pansharpened':
+            # get both 
+            md = intersections['WORLDVIEW_8_BAND']
+            pan = intersections['PAN']
+            return IpeImage(md['imageId'], bounds=bbox, pan=pan, node='Pansharpened')
+        elif image_type in intersections:
             md = intersections[image_type]
             return IpeImage(md['imageId'], bounds=bbox)
         else:
+            print('image_type ({}) not found'.format(image_type))
             return None
 
 

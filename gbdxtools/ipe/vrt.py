@@ -33,20 +33,28 @@ if not os.path.exists(IDAHO_CACHE_DIR):
     mkdir_p(IDAHO_CACHE_DIR)
 
 
-def get_vrt(idaho_id, level=0, node="TOAReflectance"):
+def get_vrt(idaho_id, level=0, node="TOAReflectance", pan=None):
     try:
         vrt = get_cached_vrt(idaho_id, node, level)
     except NotFound:
-        template = generate_vrt_template(idaho_id, node, level)
+        template = generate_vrt_template(idaho_id, node, level, pan=pan)
         vrt = put_cached_vrt(idaho_id, node, level, template)
     return vrt 
 
 
-def generate_vrt_template(idaho_id, node, level):
+def generate_vrt_template(idaho_id, node, level, pan=None):
     idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
-    ipe_id = create_ipe_graph(idaho_id, idaho_md)
-    meta = get_ipe_metadata(ipe_id) 
+    pan_md = None
+    if pan is not None:
+        pan_md = requests.get('http://idaho.timbr.io/{}.json'.format(pan['imageId'])).json()
 
+    ipe_id = create_ipe_graph(idaho_id, idaho_md, pan_md=pan_md)
+
+    if pan is not None:
+        meta = pan_md['properties']['ipe_metadata']
+    else:
+        meta = idaho_md['properties']['ipe_metadata'] #get_ipe_metadata(ipe_id) 
+        
     if level > 0:
         rrds = meta["rrds"]
         try:
@@ -69,7 +77,7 @@ def generate_vrt_template(idaho_id, node, level):
                                                                       tfm["scaleY"]]))
 
     paths = []
-    for i in xrange(image_md["numBands"]):
+    for i in xrange(idaho_md["properties"]["ipe_metadata"]["image"]["numBands"]):
         bidx = i+1
         band = ET.SubElement(vrt, "VRTRasterBand", {"dataType": NODE_DATA_TYPES.get(node, "Float32"), "band": str(bidx)})
         for x, y in product(xrange(image_md['numXTiles']), xrange(image_md['numYTiles'])):

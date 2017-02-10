@@ -14,8 +14,9 @@ from gbdxtools.ipe.error import NotFound
 VIRTUAL_IPE_URL = "http://virtualidaho-env.us-east-1.elasticbeanstalk.com/v1"
 NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
 
-def create_ipe_graph(idaho_id, meta):
-    ipe_graph = json.dumps(generate_ipe_graph(idaho_id, meta["properties"]))
+def create_ipe_graph(idaho_id, meta, pan_md=None):
+    pan_props = pan_md["properties"] if pan_md is not None else None
+    ipe_graph = json.dumps(generate_ipe_graph(idaho_id, meta["properties"], pan_md=pan_props))
     try:
         url = "{}/graph".format(VIRTUAL_IPE_URL)
         ipe_id = requests.post(url, ipe_graph, headers={"Content-Type": "application/json"}).text
@@ -24,7 +25,7 @@ def create_ipe_graph(idaho_id, meta):
     return ipe_id
 
 
-def generate_ipe_graph(idaho_id, meta, bucket="idaho-images", suffix="", pan_rec=None):
+def generate_ipe_graph(idaho_id, meta, bucket="idaho-images", suffix="", pan_md=None):
     gains_offsets = calc_toa_gain_offset(meta)
     radiance_scales = [e[0] for e in gains_offsets]
     reflectance_scales = [e[1] for e in gains_offsets]
@@ -65,7 +66,7 @@ def generate_ipe_graph(idaho_id, meta, bucket="idaho-images", suffix="", pan_rec
       ],
       "nodes": [
         {
-            "id": "MsSourceImage{}".format(suffix),
+          "id": "MsSourceImage{}".format(suffix),
           "operator": "IdahoRead",
           "parameters": {
             "bucketName": bucket,
@@ -108,9 +109,9 @@ def generate_ipe_graph(idaho_id, meta, bucket="idaho-images", suffix="", pan_rec
       ]
     }
 
-    if pan_rec is not None:
-        pan_id = pan_rec["image"]["imageId"]
-        pan_graph = generate_ipe_graph(pan_id, pan_rec, suffix="-pan")
+    if pan_md is not None:
+        pan_id = pan_md["image"]["imageId"]
+        pan_graph = generate_ipe_graph(pan_id, pan_md, suffix="-pan")
         rec["nodes"].extend(pan_graph["nodes"])
         rec["edges"].extend(pan_graph["edges"])
         rec["nodes"].extend([{

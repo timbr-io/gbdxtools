@@ -63,6 +63,7 @@ class IpeImage(da.Array):
         self._node_id = node
         self._level = 0
         self._tile_size = kwargs.get('tile_size', 256)
+        self._pan = kwargs.get('pan', None)
         with open(self.vrt) as f:
             self._vrt = f.read()
         self._cfg = self._config_dask(bounds=bounds)
@@ -70,7 +71,7 @@ class IpeImage(da.Array):
         
     @property
     def vrt(self):
-        return get_vrt(self._idaho_id, node=self._node_id, level=self._level)
+        return get_vrt(self._idaho_id, node=self._node_id, level=self._level, pan=self._pan)
 
     def read(self, bands=None):
         print 'fetching data'
