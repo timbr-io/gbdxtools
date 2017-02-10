@@ -67,19 +67,14 @@ class IpeImage(da.Array):
             self._vrt = f.read()
         self._cfg = self._config_dask(bounds=bounds)
         super(IpeImage, self).__init__(**self._cfg)
-        self._cache = None
         
     @property
     def vrt(self):
         return get_vrt(self._idaho_id, node=self._node_id, level=self._level)
 
     def read(self, bands=None):
-        if self._cache is not None:
-            arr = self._cache
-        else:
-            print 'fetching data'
-            arr = self.compute(get=threaded_get)
-            self._cache = arr
+        print 'fetching data'
+        arr = self.compute(get=threaded_get)
         if bands is not None:
             arr = arr[bands, ...]
         return arr
@@ -88,7 +83,6 @@ class IpeImage(da.Array):
         return IpeImage(self._idaho_id, bounds=bounds)
 
     def geotiff(self, path, dtype=None):
-        print self.shape
         arr = self.read()
         with self.open() as src:
             meta = src.meta.copy()
@@ -98,7 +92,7 @@ class IpeImage(da.Array):
                 meta.update({'dtype': dtype})
 
             with rasterio.open(path, "w", **meta) as dst:
-                dst_data = src.read()
+                dst_data = arr
                 if dtype is not None:
                     dst_data = dst_data.astype(dtype)
                 dst.write(dst_data)
