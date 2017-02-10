@@ -1,6 +1,7 @@
 import warnings
 import os
 import errno
+import datetime
 
 import numpy as np
 
@@ -29,7 +30,6 @@ def calc_toa_gain_offset(meta):
     """
     Compute (gain, offset) tuples for each band of the specified image metadata
     """
-    print meta
     # Set satellite index to look up cal factors
     sat_index = meta['satid'].upper() + "_" + \
                 meta['bandid'].upper()
@@ -55,7 +55,7 @@ def calc_toa_gain_offset(meta):
     img_obs.lon = meta['latlonhae'][1]
     img_obs.lat = meta['latlonhae'][0]
     img_obs.elevation = meta['latlonhae'][2]
-    img_obs.date = meta['img_datetime_obj_utc']['$date']
+    img_obs.date = datetime.datetime.fromtimestamp(meta['img_datetime_obj_utc']['$date']/1000.0).strftime('%Y-%m-%d %H:%M:%S.%f')
     sun.compute(img_obs)
     d_es = sun.earth_distance
 

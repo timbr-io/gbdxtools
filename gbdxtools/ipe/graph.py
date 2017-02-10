@@ -183,7 +183,6 @@ def generate_ipe_graph(idaho_id, meta, bucket="idaho-images", suffix="", pan_rec
             "source": "IntegerImage-pan",
             "destination": "Pansharpened"
         }])
-
     return rec
 
 def get_ipe_metadata(ipe_id):

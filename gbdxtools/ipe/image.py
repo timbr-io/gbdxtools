@@ -159,7 +159,6 @@ class IpeImage(da.Array):
 
         urls = list(set(item.text for item in root.iter("SourceFilename")
                     if item.text.startswith("http://")))
-
         chunks = []
         for url in urls:
             head, _ = os.path.splitext(url)
@@ -175,7 +174,6 @@ class IpeImage(da.Array):
         return grid
 
     def _pixel_bounds(self, window, block_shapes, preserve_blocksize=False):
-        #block_shapes = [(256, 256) for bs in src.block_shapes]
         if preserve_blocksize:
             window = rasterio.windows.round_window_to_full_blocks(window, block_shapes)
         roi = window.flatten()
