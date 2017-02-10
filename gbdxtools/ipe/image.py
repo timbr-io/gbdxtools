@@ -34,17 +34,6 @@ _curl_pool = defaultdict(pycurl.Curl)
 
 from gbdxtools.ipe.vrt import get_vrt
 
-def index_to_slice(ind, rowstep, colstep):
-    i, j = ind
-    window = ((i * rowstep, (i + 1) * rowstep), (j * colstep, (j + 1) * colstep))
-    return window
-
-def generate_blocks(window, blocksize):
-    rowsize, colsize = blocksize
-    nrowblocks = window.num_rows / rowsize
-    ncolblocks = window.num_cols / colsize
-    for ind in np.ndindex((nrowblocks, ncolblocks)):
-        yield index_to_slice(ind, nrowblocks, ncolblocks)
 
 @delayed
 def load_url(url, bands=8):
