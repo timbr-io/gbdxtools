@@ -19,6 +19,7 @@ import requests
 from shapely.geometry import box
 import rasterio
 from rasterio.io import MemoryFile
+from affine import Affine
 import dask
 import dask.array as da
 import dask.bag as db
@@ -83,12 +84,22 @@ class IpeImage(da.Array):
     def aoi(self, bounds):
         return IpeImage(self._idaho_id, bounds=bounds)
 
-    def geotiff(self, path, dtype=None):
+    def geotiff(self, path, dtype=None, proj=None):
         arr = self.read()
         with self.open() as src:
             meta = src.meta.copy()
-            meta.update({'driver': 'GTiff'})
-
+            meta.update({
+              'driver': 'GTiff',
+              'width': arr.shape[-1],
+              'height': arr.shape[1]
+            })
+            if proj is not None:
+                meta["crs"] = {'init': proj}
+            if self._bounds is not None:
+                (minx, miny, maxx, maxy) = self._bounds
+                affine = [c for c in rasterio.transform.from_bounds(minx, miny, maxx, maxy, int(arr.shape[-1]), int(arr.shape[1]))]
+                transform = [affine[2], affine[0], 0.0, affine[5], 0.0, affine[4]]
+                meta.update({'transform': Affine.from_gdal(*transform)})
             if dtype is not None:
                 meta.update({'dtype': dtype})
 
