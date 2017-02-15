@@ -4,8 +4,10 @@ from collections import defaultdict
 from contextlib import contextmanager
 from xml.etree import cElementTree as ET
 import os.path
+
 import signal
 signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -16,17 +18,18 @@ except ImportError:
 
 import requests
 
-from shapely.geometry import box
+from shapely.geometry import box, shape
+from shapely.wkt import loads
 import rasterio
 from rasterio.io import MemoryFile
 from affine import Affine
+
 import dask
 import dask.array as da
 import dask.bag as db
 from dask.delayed import delayed
 import numpy as np
-from scipy.sparse import dok_matrix
-idaho_id = "59f87923-7afa-4588-9f59-dc5ad8b821b0"
+
 import threading
 threaded_get = partial(dask.threaded.get, num_workers=4)
 
@@ -35,9 +38,9 @@ _curl_pool = defaultdict(pycurl.Curl)
 
 from gbdxtools.ipe.vrt import get_vrt
 
-
 @delayed
 def load_url(url, bands=8):
+    """ Loads a geotiff url inside a thread and returns as an ndarray """
     thread_id = threading.current_thread().ident
     _curl = _curl_pool[thread_id]
     buf = BytesIO()
@@ -58,64 +61,66 @@ def load_url(url, bands=8):
     return arr
 
 class IpeImage(da.Array):
-    def __init__(self, idaho_id, bounds=None, node="TOAReflectance", **kwargs):
+    """
+      Dask based access to ipe based images (Idaho).
+    """
+    def __init__(self, interface):
+        self.interface = interface
+
+    def __call__(self, idaho_id, node="TOAReflectance", **kwargs):
         self._idaho_id = idaho_id
-        self._bounds = bounds
+        self._bounds = self._parse_geoms(**kwargs)
         self._node_id = node
         self._level = 0
         self._tile_size = kwargs.get('tile_size', 256)
         self._pan = kwargs.get('pan', None)
         with open(self.vrt) as f:
             self._vrt = f.read()
-        self._cfg = self._config_dask(bounds=bounds)
+        self._cfg = self._config_dask(bounds=self._bounds)
         super(IpeImage, self).__init__(**self._cfg)
+        return self
         
     @property
     def vrt(self):
+        """ Generates a VRT for the full Idaho image from image metadata and caches locally """
         return get_vrt(self._idaho_id, node=self._node_id, level=self._level, pan=self._pan)
 
     def read(self, bands=None):
+        """ Reads data from a dacsk array and returns the computed ndarray matching the given bands """
         print 'fetching data'
         arr = self.compute(get=threaded_get)
         if bands is not None:
             arr = arr[bands, ...]
         return arr
 
-    def aoi(self, bounds):
-        return IpeImage(self._idaho_id, bounds=bounds)
+    def aoi(self, **kwargs):
+        """ Subsets the IpeImage by the given bounds """
+        return self.interface.ipeimage(self._idaho_id, **kwargs)
 
-    def geotiff(self, path, dtype=None, proj=None):
-        arr = self.read()
+    def metadata(self):
         with self.open() as src:
             meta = src.meta.copy()
             meta.update({
-              'driver': 'GTiff',
-              'width': arr.shape[-1],
-              'height': arr.shape[1]
+                'width': self.shape[-1],
+                'height': self.shape[1]
             })
-            if proj is not None:
-                meta["crs"] = {'init': proj}
             if self._bounds is not None:
                 (minx, miny, maxx, maxy) = self._bounds
-                affine = [c for c in rasterio.transform.from_bounds(minx, miny, maxx, maxy, int(arr.shape[-1]), int(arr.shape[1]))]
+                affine = [c for c in rasterio.transform.from_bounds(minx, miny, maxx, maxy, int(self.shape[-1]), int(self.shape[1]))]
                 transform = [affine[2], affine[0], 0.0, affine[5], 0.0, affine[4]]
                 meta.update({'transform': Affine.from_gdal(*transform)})
-            if dtype is not None:
-                meta.update({'dtype': dtype})
 
-            with rasterio.open(path, "w", **meta) as dst:
-                dst_data = arr
-                if dtype is not None:
-                    dst_data = dst_data.astype(dtype)
-                dst.write(dst_data)
-        return path
+        return meta
+          
     
     @contextmanager
     def open(self, *args, **kwargs):
+        """ A rasterio based context manager for reading the full image VRT """
         with rasterio.open(self.vrt, *args, **kwargs) as src:
             yield src
 
     def _config_dask(self, bounds=None):
+        """ Configures the image as a dask array with a calculated shape and chunk size """
         with self.open() as src:
             nbands = len(src.indexes)
             px_bounds = None
@@ -134,6 +139,7 @@ class IpeImage(da.Array):
         return cfg
     
     def _build_array(self, urls, bands=8, chunks=(1,256,256), dtype=np.float32):
+        """ Creates the deferred dask array from a grid of URLs """
         buf = da.concatenate(
             [da.concatenate([da.from_delayed(load_url(url, bands=bands), chunks, dtype) for u, url in enumerate(row)],
                         axis=1) for r, row in enumerate(urls)], axis=2)
@@ -141,6 +147,10 @@ class IpeImage(da.Array):
         return buf    
     
     def _collect_urls(self, xml, px_bounds=None):
+        """ 
+          Finds all intersecting tiles from the source image and intersect a given bounds 
+          returns a nested list of urls as a grid that represents data chunks in the array
+        """
         root = ET.fromstring(xml)
         if px_bounds is not None:
             target = box(*px_bounds)
@@ -168,14 +178,29 @@ class IpeImage(da.Array):
                 for key, it in groupby(sorted(chunks, key=lambda x: x[0]), lambda x: x[0])]
         return grid
 
-    def _pixel_bounds(self, window, block_shapes, preserve_blocksize=False):
+    def _pixel_bounds(self, window, block_shapes, preserve_blocksize=True):
+        """ Converts a source window in pixel offsets to pixel bounds for intersecting source tiles """
         if preserve_blocksize:
             window = rasterio.windows.round_window_to_full_blocks(window, block_shapes)
         roi = window.flatten()
         return [roi[0], roi[1], roi[0] + roi[2], roi[1] + roi[3]]
 
+    def _parse_geoms(self, **kwargs):
+        """ Finds supported geometry types, parses them and returns the bbox """ 
+        bbox = kwargs.get('bbox', None)
+        wkt = kwargs.get('wkt', None)
+        geojson = kwargs.get('geojson', None)
+        if bbox is not None:
+            return bbox
+        elif wkt is not None:
+            return loads(wkt).bounds
+        elif geojson is not None:
+            return shape(geojson).bounds
+        else:
+            return None
+
 if __name__ == '__main__':
-    img = IpeImage('58e9febc-0b04-4143-97fb-95436fcf3ed6', bounds=[-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023])
+    img = IpeImage('58e9febc-0b04-4143-97fb-95436fcf3ed6', bbox=[-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023])
     with img.open() as src:
         assert isinstance(src, rasterio.DatasetReader)
 

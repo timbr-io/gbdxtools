@@ -7,12 +7,9 @@ from __future__ import print_function
 from __future__ import division
 from builtins import str
 from builtins import object
-from past.utils import old_div
 
 from shapely.wkt import loads
 from shapely.geometry import box
-
-from gbdxtools.ipe.image import IpeImage
 
 class Image(object):
     """ 
@@ -24,19 +21,20 @@ class Image(object):
 
     def __init__(self, interface):
         self.interface = interface
-        self.gbdx_connection = self.interface.gbdx_connection
-        self.logger = interface.logger
 
-    def __call__(self, cat_id):
+    def __call__(self, cat_id, image_type="MS", node="TOAReflectance", **kwargs):
         self.cat_id = cat_id
+        self._type = image_type
+        self._node = node
+        self._level = kwargs.get('level', 0)
         self._fetch_metadata()
+
         return self
 
     def _fetch_metadata(self):
         props = self.interface.catalog.get(self.cat_id)['properties']
         f = loads(props['footprintWkt'])
         geom = f.__geo_interface__
-        del props['footprintWkt']
         idaho = self.interface.idaho.get_images_by_catid(self.cat_id)
         parts = self.interface.idaho.describe_images(idaho)[self.cat_id]['parts']
         idaho = {k['identifier']: k for k in idaho['results']}
@@ -57,6 +55,7 @@ class Image(object):
 
     def vrt(self):
         print('Create a vrt from image parts')
+        print(len(self.metadata['properties']['parts']))
         # look for a vrt on disk else create one
         # return path the vrt
 
@@ -112,10 +111,10 @@ class Image(object):
             # get both 
             md = intersections['WORLDVIEW_8_BAND']
             pan = intersections['PAN']
-            return IpeImage(md['imageId'], bounds=bbox, pan=pan, node='Pansharpened')
+            return self.interface.ipeimage(md['imageId'], bbox=bbox, pan=pan, node='Pansharpened')
         elif image_type in intersections:
             md = intersections[image_type]
-            return IpeImage(md['imageId'], bounds=bbox)
+            return self.interface.ipeimage(md['imageId'], bbox=bbox)
         else:
             print('image_type ({}) not found'.format(image_type))
             return None
