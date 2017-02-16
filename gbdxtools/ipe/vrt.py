@@ -50,10 +50,11 @@ def generate_vrt_template(idaho_id, node, level, pan=None):
 
     ipe_id = create_ipe_graph(idaho_id, idaho_md, pan_md=pan_md)
 
-    if pan is not None:
-        meta = pan_md['properties']['ipe_metadata']
-    else:
-        meta = idaho_md['properties']['ipe_metadata'] #get_ipe_metadata(ipe_id) 
+    #if pan is not None:
+    #    meta = pan_md['properties']
+    #else:
+    #    meta = idaho_md['properties']
+    meta = get_ipe_metadata(ipe_id, node=node)
         
     if level > 0:
         rrds = meta["rrds"]
@@ -64,6 +65,7 @@ def generate_vrt_template(idaho_id, node, level, pan=None):
 
     image_md = meta['image']
     tfm = meta['georef']
+    #tfm = meta['warp']['targetGeoTransform']
     tile_size_x = image_md['tileXSize']
     tile_size_y = image_md['tileYSize']
 
@@ -77,7 +79,8 @@ def generate_vrt_template(idaho_id, node, level, pan=None):
                                                                       tfm["scaleY"]]))
 
     paths = []
-    for i in xrange(idaho_md["properties"]["ipe_metadata"]["image"]["numBands"]):
+    #for i in xrange(idaho_md["properties"]["image"]["numBands"]):
+    for i in xrange(image_md["numBands"]):
         bidx = i+1
         band = ET.SubElement(vrt, "VRTRasterBand", {"dataType": NODE_DATA_TYPES.get(node, "Float32"), "band": str(bidx)})
         for x, y in product(xrange(image_md['numXTiles']), xrange(image_md['numYTiles'])):
