@@ -35,7 +35,7 @@ if not os.path.exists(IDAHO_CACHE_DIR):
 
 def get_vrt(idaho_id, ipe_id, node, level=0):
     try:
-        vrt = get_cached_vrt(idaho_id, node, level)
+        vrt = get_cached_vrt(ipe_id, node, level)
     except NotFound:
         template = generate_vrt_template(idaho_id, ipe_id, node, level)
         vrt = put_cached_vrt(ipe_id, node, level, template)

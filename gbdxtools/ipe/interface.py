@@ -3,24 +3,50 @@ import json
 import types
 import copy
 import gbdxtools.ipe_image
+from hashlib import sha256
+from itertools import chain
+
+NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
+
+class ContentHashedDict(dict):
+    @property
+    def _id(self):
+        _id = str(uuid.uuid5(NAMESPACE_UUID, self.__hash__()))
+        return _id
+
+    def __hash__(self):
+        dup = {k:v for k,v in self.iteritems() if k is not "id"}
+        return sha256(str(dup)).hexdigest()
+
+    def populate_id(self):
+        self.update({"id": self._id})
+
 
 class Op(object):
     def __init__(self, name):
         self._operator = name
-        self._id = str(uuid.uuid4())
         self._edges = []
         self._nodes = []
+
+    @property
+    def _id(self):
+        return str(uuid.uuid5(NAMESPACE_UUID, json.dumps(self._nodes)))
 
     def __call__(self, *args, **kwargs):
         if len(args) > 0 and all([isinstance(arg, gbdxtools.ipe_image.IpeImage) for arg in args]):
             return self._ipe_image_call(*args, **kwargs)
-        self._nodes = [{"id": self._id, "operator": self._operator, "parameters": {k:json.dumps(v) if not isinstance(v, types.StringTypes) else v for k,v in kwargs.iteritems()}}]
+        self._nodes = [ContentHashedDict({"operator": self._operator,
+                                          "parameters": {k:json.dumps(v) if not isinstance(v, types.StringTypes) else v for k,v in kwargs.iteritems()}})]
         for arg in args:
             self._nodes.extend(arg._nodes)
-        self._edges = [{"id": "{}-{}".format(arg._id, self._id), "index": idx + 1, "source": arg._id, "destination": self._id}
-                       for idx, arg in enumerate(args)]
+
+
+        self._edges = [ContentHashedDict({"index": idx + 1, "source": arg._nodes[0]._id, "destination": self._nodes[0]._id}) for idx, arg in enumerate(args)]
         for arg in args:
             self._edges.extend(arg._edges)
+
+        for e in chain(self._nodes, self._edges):
+            e.populate_id()
         return self
 
     def _ipe_image_call(self, *args, **kwargs):
@@ -31,7 +57,7 @@ class Op(object):
 
     def graph(self):
         return {
-            "id": str(uuid.uuid4()),
+            "id": self._id,
             "edges": self._edges,
             "nodes": self._nodes
         }

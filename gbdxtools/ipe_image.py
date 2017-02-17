@@ -8,6 +8,7 @@ import os.path
 import signal
 signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
+import json
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -100,7 +101,7 @@ class IpeImage(da.Array):
 
     @property
     def ipe_node_id(self):
-        return self.ipe._id
+        return self.ipe._nodes[0]._id
 
     @property
     def vrt(self):
