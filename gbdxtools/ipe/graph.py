@@ -14,6 +14,12 @@ from gbdxtools.ipe.error import NotFound
 VIRTUAL_IPE_URL = "http://virtualidaho-env.us-east-1.elasticbeanstalk.com/v1"
 NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
 
+def register_ipe_graph(ipe_graph):
+    url = "{}/graph".format(VIRTUAL_IPE_URL)
+    ipe_id = requests.post(url, json.dumps(ipe_graph), headers={"Content-Type": "application/json"}).text
+    return ipe_id
+
+
 def create_ipe_graph(idaho_id, meta, pan_md=None):
     pan_props = pan_md["properties"] if pan_md is not None else None
     ipe_graph = json.dumps(generate_ipe_graph(idaho_id, meta["properties"], pan_md=pan_props))

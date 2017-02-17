@@ -33,10 +33,15 @@ import numpy as np
 import threading
 threaded_get = partial(dask.threaded.get, num_workers=4)
 
+import requests
 import pycurl
 _curl_pool = defaultdict(pycurl.Curl)
 
 from gbdxtools.ipe.vrt import get_vrt
+from gbdxtools.ipe.interface import Ipe
+from gbdxtools.ipe.util import calc_toa_gain_offset
+from gbdxtools.ipe.graph import register_ipe_graph
+ipe = Ipe()
 
 @delayed
 def load_url(url, bands=8):
@@ -67,8 +72,11 @@ class IpeImage(da.Array):
     def __init__(self, interface):
         self.interface = interface
 
-    def __call__(self, idaho_id, node="TOAReflectance", **kwargs):
+    def __call__(self, idaho_id, node="toa_reflectance", **kwargs):
         self._idaho_id = idaho_id
+        self._ipe_id = None
+        self._idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
+        self._ipe_graphs = self._init_graphs()
         self._bounds = self._parse_geoms(**kwargs)
         self._node_id = node
         self._level = 0
@@ -79,11 +87,25 @@ class IpeImage(da.Array):
         self._cfg = self._config_dask(bounds=self._bounds)
         super(IpeImage, self).__init__(**self._cfg)
         return self
-        
+
+    @property
+    def ipe(self):
+        return self._ipe_graphs[self._node_id]
+
+    @property
+    def ipe_id(self):
+        if self._ipe_id is None:
+            self._ipe_id = register_ipe_graph(self.ipe.graph())
+        return self._ipe_id
+
+    @property
+    def ipe_node_id(self):
+        return self.ipe._id
+
     @property
     def vrt(self):
         """ Generates a VRT for the full Idaho image from image metadata and caches locally """
-        return get_vrt(self._idaho_id, node=self._node_id, level=self._level, pan=self._pan)
+        return get_vrt(self._idaho_id, self.ipe_id, self.ipe_node_id, level=self._level)
 
     def read(self, bands=None):
         """ Reads data from a dacsk array and returns the computed ndarray matching the given bands """
@@ -111,8 +133,8 @@ class IpeImage(da.Array):
                 meta.update({'transform': Affine.from_gdal(*transform)})
 
         return meta
-          
-    
+
+
     @contextmanager
     def open(self, *args, **kwargs):
         """ A rasterio based context manager for reading the full image VRT """
@@ -128,27 +150,27 @@ class IpeImage(da.Array):
                 window = src.window(*bounds)
                 px_bounds = self._pixel_bounds(window, src.block_shapes)
             urls = self._collect_urls(self._vrt, px_bounds=px_bounds)
-            cfg = {"shape": tuple([nbands] + [self._tile_size*len(urls[0]), self._tile_size*len(urls)]), 
-                   "dtype": src.dtypes[0], 
+            cfg = {"shape": tuple([nbands] + [self._tile_size*len(urls[0]), self._tile_size*len(urls)]),
+                   "dtype": src.dtypes[0],
                    "chunks": tuple([len(src.block_shapes)] + [self._tile_size, self._tile_size])}
             self._meta = src.meta
         img = self._build_array(urls, bands=nbands, chunks=cfg["chunks"], dtype=cfg["dtype"])
         cfg["name"] = img.name
         cfg["dask"] = img.dask
-        
+
         return cfg
-    
+
     def _build_array(self, urls, bands=8, chunks=(1,256,256), dtype=np.float32):
         """ Creates the deferred dask array from a grid of URLs """
         buf = da.concatenate(
             [da.concatenate([da.from_delayed(load_url(url, bands=bands), chunks, dtype) for u, url in enumerate(row)],
                         axis=1) for r, row in enumerate(urls)], axis=2)
 
-        return buf    
-    
+        return buf
+
     def _collect_urls(self, xml, px_bounds=None):
-        """ 
-          Finds all intersecting tiles from the source image and intersect a given bounds 
+        """
+          Finds all intersecting tiles from the source image and intersect a given bounds
           returns a nested list of urls as a grid that represents data chunks in the array
         """
         root = ET.fromstring(xml)
@@ -186,7 +208,7 @@ class IpeImage(da.Array):
         return [roi[0], roi[1], roi[0] + roi[2], roi[1] + roi[3]]
 
     def _parse_geoms(self, **kwargs):
-        """ Finds supported geometry types, parses them and returns the bbox """ 
+        """ Finds supported geometry types, parses them and returns the bbox """
         bbox = kwargs.get('bbox', None)
         wkt = kwargs.get('wkt', None)
         geojson = kwargs.get('geojson', None)
@@ -199,6 +221,22 @@ class IpeImage(da.Array):
         else:
             return None
 
+    def _init_graphs(self):
+        meta = self._idaho_md["properties"]
+        gains_offsets = calc_toa_gain_offset(meta)
+        radiance_scales = [e[0] for e in gains_offsets]
+        reflectance_scales = [e[1] for e in gains_offsets]
+        radiance_offsets = [e[2] for e in gains_offsets]
+
+        ortho = ipe.GridOrthorectify(ipe.IdahoRead(bucketName="idaho-images", imageId=self._idaho_id, objectStore="S3"))
+        radiance = ipe.AddConst(ipe.MultiplyConst(ipe.Format(ortho, dataType="4"), constants=radiance_scales), constants=radiance_offsets)
+        toa_reflectance = ipe.MultiplyConst(radiance, constants=reflectance_scales)
+        return {"ortho": ortho, "radiance": radiance, "toa_reflectance": toa_reflectance}
+
+
+
+
+
 if __name__ == '__main__':
     img = IpeImage('58e9febc-0b04-4143-97fb-95436fcf3ed6', bbox=[-95.06904982030392, 29.7187207124839, -95.06123922765255, 29.723901202069023])
     with img.open() as src:
@@ -207,7 +245,7 @@ if __name__ == '__main__':
     rgb = img[[4,2,1], ...] # should not fetch
     assert isinstance(rgb, da.Array)
     print rgb.shape
-  
+
     data = img.read(bands=[4,2,1]) # should fetch
     assert isinstance(data, np.ndarray)
     assert len(data.shape) == 3

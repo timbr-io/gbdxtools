@@ -33,29 +33,19 @@ if not os.path.exists(IDAHO_CACHE_DIR):
     mkdir_p(IDAHO_CACHE_DIR)
 
 
-def get_vrt(idaho_id, level=0, node="TOAReflectance", pan=None):
+def get_vrt(idaho_id, ipe_id, node, level=0):
     try:
         vrt = get_cached_vrt(idaho_id, node, level)
     except NotFound:
-        template = generate_vrt_template(idaho_id, node, level, pan=pan)
-        vrt = put_cached_vrt(idaho_id, node, level, template)
-    return vrt 
+        template = generate_vrt_template(idaho_id, ipe_id, node, level)
+        vrt = put_cached_vrt(ipe_id, node, level, template)
+    return vrt
 
 
-def generate_vrt_template(idaho_id, node, level, pan=None):
+def generate_vrt_template(idaho_id, ipe_id, node, level):
     idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
-    pan_md = None
-    if pan is not None:
-        pan_md = requests.get('http://idaho.timbr.io/{}.json'.format(pan['imageId'])).json()
-
-    ipe_id = create_ipe_graph(idaho_id, idaho_md, pan_md=pan_md)
-
-    #if pan is not None:
-    #    meta = pan_md['properties']
-    #else:
-    #    meta = idaho_md['properties']
     meta = get_ipe_metadata(ipe_id, node=node)
-        
+
     if level > 0:
         rrds = meta["rrds"]
         try:
@@ -98,7 +88,7 @@ def generate_vrt_template(idaho_id, node, level, pan=None):
                                             "xSize": str(tile_size_x), "ySize": str(tile_size_y)})
 
             ET.SubElement(src, "SourceProperties", {"RasterXSize": str(tile_size_x), "RasterYSize": str(tile_size_y),
-                                                    "BlockXSize": "256", "BlockYSize": "256", "DataType": NODE_DATA_TYPES.get(node, "Float32")})
+                                                    "BlockXSize": "256", "BlockYSize": "256", "DataType": DTLOOKUP.get(meta["image"]["dataType"], "Float32")})
     return prettify(vrt)
 
 
