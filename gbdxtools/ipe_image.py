@@ -76,7 +76,7 @@ class IpeImage(da.Array):
         self._idaho_id = idaho_id
         self._ipe_id = None
         self._idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
-        self._ipe_graphs = self._init_graphs()
+        self._ipe_graphs = kwargs.get("_ipe_graphs", self._init_graphs())
         self._bounds = self._parse_geoms(**kwargs)
         self._node_id = node
         self._level = 0

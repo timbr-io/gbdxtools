@@ -1,6 +1,7 @@
 import uuid
 import json
 import types
+import copy
 import gbdxtools.ipe_image
 
 class Op(object):
@@ -11,8 +12,8 @@ class Op(object):
         self._nodes = []
 
     def __call__(self, *args, **kwargs):
-        if all([isinstance(arg, gbdxtools.ipe_image.IpeImage) for arg in args]):
-            self._ipe_image_call(*args, **kwargs)
+        if len(args) > 0 and all([isinstance(arg, gbdxtools.ipe_image.IpeImage) for arg in args]):
+            return self._ipe_image_call(*args, **kwargs)
         self._nodes = [{"id": self._id, "operator": self._operator, "parameters": {k:json.dumps(v) if not isinstance(v, types.StringTypes) else v for k,v in kwargs.iteritems()}}]
         for arg in args:
             self._nodes.extend(arg._nodes)
@@ -23,8 +24,10 @@ class Op(object):
         return self
 
     def _ipe_image_call(self, *args, **kwargs):
-        pass
-
+        out = self(*[arg.ipe for arg in args], **kwargs)
+        key = str(uuid.uuid4())
+        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out})
+        return ipe_img
 
     def graph(self):
         return {
