@@ -4,6 +4,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from xml.etree import cElementTree as ET
 import os.path
+import uuid
 
 import signal
 signal.signal(signal.SIGPIPE, signal.SIG_IGN)
@@ -38,10 +39,11 @@ import requests
 import pycurl
 _curl_pool = defaultdict(pycurl.Curl)
 
-from gbdxtools.ipe.vrt import get_vrt
-from gbdxtools.ipe.interface import Ipe
+from gbdxtools.ipe.vrt import get_cached_vrt, put_cached_vrt, generate_vrt_template
 from gbdxtools.ipe.util import calc_toa_gain_offset
 from gbdxtools.ipe.graph import register_ipe_graph
+from gbdxtools.ipe.error import NotFound
+from gbdxtools.ipe.interface import Ipe
 ipe = Ipe()
 
 @delayed
@@ -80,9 +82,9 @@ class IpeImage(da.Array):
         self._ipe_graphs = kwargs.get("_ipe_graphs", self._init_graphs())
         self._bounds = self._parse_geoms(**kwargs)
         self._node_id = node
+        self._graph_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(self.ipe.graph())))
         self._level = 0
         self._tile_size = kwargs.get('tile_size', 256)
-        self._pan = kwargs.get('pan', None)
         with open(self.vrt) as f:
             self._vrt = f.read()
         self._cfg = self._config_dask(bounds=self._bounds)
@@ -106,7 +108,14 @@ class IpeImage(da.Array):
     @property
     def vrt(self):
         """ Generates a VRT for the full Idaho image from image metadata and caches locally """
-        return get_vrt(self._idaho_id, self.ipe_id, self.ipe_node_id, level=self._level)
+        #print self._idaho_id, self._graph_id, self.ipe.graph()['id']
+        try:
+            vrt = get_cached_vrt(self._idaho_id, self._graph_id, self._level)
+        except NotFound:
+            print 'Not Found'
+            template = generate_vrt_template(self._idaho_id, self.ipe_id, self.ipe_node_id, self._level)
+            vrt = put_cached_vrt(self._idaho_id, self._graph_id, self._level, template)
+        return vrt
 
     def read(self, bands=None):
         """ Reads data from a dacsk array and returns the computed ndarray matching the given bands """
@@ -225,16 +234,13 @@ class IpeImage(da.Array):
     def _init_graphs(self):
         meta = self._idaho_md["properties"]
         gains_offsets = calc_toa_gain_offset(meta)
-        radiance_scales = [e[0] for e in gains_offsets]
-        reflectance_scales = [e[1] for e in gains_offsets]
-        radiance_offsets = [e[2] for e in gains_offsets]
+        radiance_scales, reflectance_scales, radiance_offsets = zip(*gains_offsets)
 
         ortho = ipe.GridOrthorectify(ipe.IdahoRead(bucketName="idaho-images", imageId=self._idaho_id, objectStore="S3"))
         radiance = ipe.AddConst(ipe.MultiplyConst(ipe.Format(ortho, dataType="4"), constants=radiance_scales), constants=radiance_offsets)
         toa_reflectance = ipe.MultiplyConst(radiance, constants=reflectance_scales)
+
         return {"ortho": ortho, "radiance": radiance, "toa_reflectance": toa_reflectance}
-
-
 
 
 

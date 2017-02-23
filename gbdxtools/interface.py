@@ -21,6 +21,7 @@ from gbdxtools.vectors import Vectors
 from gbdxtools.idaho import Idaho
 from gbdxtools.image import Image
 from gbdxtools.ipe_image import IpeImage
+from gbdxtools.ipe.interface import Ipe
 from gbdxtools.task_registry import TaskRegistry
 import gbdxtools.simpleworkflows
 
@@ -68,6 +69,8 @@ class Interface(object):
         self.idaho = Idaho(self)
 
         self.vectors = Vectors(self)
+
+        self.ipe = Ipe()
 
         self.image = Image(self)
 

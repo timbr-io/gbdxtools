@@ -6,7 +6,8 @@ import gbdxtools.ipe_image
 from hashlib import sha256
 from itertools import chain
 
-NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
+NAMESPACE_UUID = uuid.NAMESPACE_DNS
+#NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
 
 class ContentHashedDict(dict):
     @property
@@ -36,6 +37,7 @@ class Op(object):
         if len(args) > 0 and all([isinstance(arg, gbdxtools.ipe_image.IpeImage) for arg in args]):
             return self._ipe_image_call(*args, **kwargs)
         self._nodes = [ContentHashedDict({"operator": self._operator,
+                                          "_ancestors": [arg._id for arg in args], 
                                           "parameters": {k:json.dumps(v) if not isinstance(v, types.StringTypes) else v for k,v in kwargs.iteritems()}})]
         for arg in args:
             self._nodes.extend(arg._nodes)
@@ -51,15 +53,17 @@ class Op(object):
 
     def _ipe_image_call(self, *args, **kwargs):
         out = self(*[arg.ipe for arg in args], **kwargs)
-        key = str(uuid.uuid4())
+        #key = str(uuid.uuid4())
+        key = self._id
         ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out})
         return ipe_img
 
     def graph(self):
+        _nodes = [{k:v for k,v in node.iteritems() if not k.startswith('_')} for node in self._nodes]
         return {
             "id": self._id,
             "edges": self._edges,
-            "nodes": self._nodes
+            "nodes": _nodes
         }
 
 class Ipe(object):

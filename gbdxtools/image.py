@@ -7,6 +7,7 @@ from __future__ import print_function
 import xml.etree.cElementTree as ET
 from contextlib import contextmanager
 import os
+import json
 
 from shapely.wkt import loads
 from shapely.geometry import box
@@ -31,15 +32,16 @@ class Image(object):
 
     def __init__(self, interface):
         self.interface = interface
+        self.ipe = self.interface.ipe
 
-    def __call__(self, cat_id, band_type="MS", node="TOAReflectance", **kwargs):
+    def __call__(self, cat_id, band_type="MS", node="toa_reflectance", **kwargs):
         self.cat_id = cat_id
         self._band_type = band_types[band_type]
         self._node = node
         self._pansharpen = kwargs.get('pansharpen', False)
         self._acomp = kwargs.get('acomp', False)
         if self._pansharpen:
-            self._node = 'Pansharpened'
+            self._node = 'pansharpened'
         self._level = kwargs.get('level', 0)
         self._fetch_metadata()
         return self
@@ -79,10 +81,10 @@ class Image(object):
             return None
 
         pansharpen = kwargs.get('pansharpen', self._pansharpen)
-        if self._node == 'Pansharpened' and pansharpen:
-            md = intersections['WORLDVIEW_8_BAND']
-            pan = intersections['PAN']
-            return self.interface.ipeimage(md['imageId'], bbox=bbox, pan=pan, node='Pansharpened', **kwargs)
+        if self._node == 'pansharpened' and pansharpen:
+            ms = self.interface.ipeimage(intersections['WORLDVIEW_8_BAND']['imageId'])
+            pan = self.interface.ipeimage(intersections['PAN']['imageId'])
+            return self._create_pansharpen(ms, pan)
         elif band_type in intersections:
             md = intersections[band_type]
             return self.interface.ipeimage(md['imageId'], bbox=bbox, **kwargs)
@@ -112,15 +114,22 @@ class Image(object):
     def _collect_vrts(self):
         vrts = []
         for part in self.metadata['properties']['parts']:
-            if self._node == 'Pansharpened':
-                md = part['WORLDVIEW_8_BAND']
-                pan = part['PAN']
-                img = self.interface.ipeimage(md['imageId'], pan=pan, node=self._node)
+            if self._node == 'pansharpened':
+                ms = self.interface.ipeimage(part['WORLDVIEW_8_BAND']['imageId'])
+                pan = self.interface.ipeimage(part['PAN']['imageId'])
+                return self._create_pansharpen(ms, pan)
             else:
                 md = part[self._band_type]
                 img = self.interface.ipeimage(md['imageId'])
             vrts.append(img.vrt)
         return vrts
+
+    def _create_pansharpen(self, ms, pan):
+        ms = self.ipe.Format(self.ipe.MultiplyConst(ms, constants=json.dumps([1000]*8)), dataType="1")
+        pan = self.ipe.Format(self.ipe.MultiplyConst(pan, constants=json.dumps([1000])), dataType="1")
+        return self.ipe.LocallyProjectivePanSharpen(ms, pan)
+        
+        
 
 
 

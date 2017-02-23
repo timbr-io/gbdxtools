@@ -12,12 +12,12 @@ from gbdxtools.ipe.util import calc_toa_gain_offset
 from gbdxtools.ipe.error import NotFound
 
 VIRTUAL_IPE_URL = "http://virtualidaho-env.us-east-1.elasticbeanstalk.com/v1"
-NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
+#NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
+NAMESPACE_UUID = uuid.NAMESPACE_DNS
 
 def register_ipe_graph(ipe_graph):
     url = "{}/graph".format(VIRTUAL_IPE_URL)
-    ipe_id = requests.post(url, json.dumps(ipe_graph), headers={"Content-Type": "application/json"}).text
-    return ipe_id
+    return requests.post(url, json.dumps(ipe_graph), headers={"Content-Type": "application/json"}).text
 
 
 def create_ipe_graph(idaho_id, meta, pan_md=None):
