@@ -26,6 +26,8 @@ import rasterio
 from rasterio.io import MemoryFile
 from affine import Affine
 
+from matplotlib import pyplot as plt
+
 import dask
 import dask.array as da
 import dask.bag as db
@@ -139,6 +141,7 @@ class IpeImage(da.Array):
         """ Subsets the IpeImage by the given bounds """
         return self.interface.ipeimage(self._idaho_id, **kwargs)
 
+    @property
     def metadata(self):
         with self.open() as src:
             meta = src.meta.copy()
@@ -251,6 +254,24 @@ class IpeImage(da.Array):
         toa_reflectance = ipe.MultiplyConst(radiance, constants=reflectance_scales)
 
         return {"ortho": ortho, "radiance": radiance, "toa_reflectance": toa_reflectance}
+
+    def plot(self, stretch=[2,98], w=20, h=10):
+        f, ax1 = plt.subplots(1, figsize=(w,w))
+        ax1.axis('off')
+        if self.metadata['count'] == 1:
+            plt.imshow(self[0,:,:], cmap="Greys_r")
+        else:
+            data = self.read()
+            data = data.astype(np.float32)
+            data = np.rollaxis(data, 0, 3)
+            lims = np.percentile(data,stretch,axis=(0,1))
+            for x in xrange(len(data[0,0,:])):
+                top = lims[:,x][1]
+                bottom = lims[:,x][0]
+                data[:,:,x] = (data[:,:,x]-bottom)/float(top-bottom)
+                data = np.clip(data,0,1)
+            plt.imshow(data,interpolation='nearest')   
+        plt.show(block=False)
 
 
 
