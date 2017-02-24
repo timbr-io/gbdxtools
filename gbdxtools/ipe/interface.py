@@ -51,9 +51,11 @@ class Op(object):
         return self
 
     def _ipe_image_call(self, *args, **kwargs):
-        out = self(*[arg.ipe for arg in args])
+        if '_intermediate' in kwargs:
+            del kwargs['_intermediate']
+        out = self(*[arg.ipe for arg in args], **kwargs)
         key = self._id
-        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out}, **kwargs)
+        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out})
         return ipe_img
 
     def graph(self):

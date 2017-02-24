@@ -127,10 +127,8 @@ class Image(object):
     def _create_pansharpen(self, ms, pan, **kwargs):
         ms = self.ipe.Format(self.ipe.MultiplyConst(ms, constants=json.dumps([1000]*8), _intermediate=True), dataType="1", _intermediate=True)
         pan = self.ipe.Format(self.ipe.MultiplyConst(pan, constants=json.dumps([1000]), _intermediate=True), dataType="1", _intermediate=True)
-        return self.ipe.LocallyProjectivePanSharpen(ms, pan, **kwargs)
+        return self.ipe.LocallyProjectivePanSharpen(ms, pan).aoi(bbox=kwargs.get('bbox', None))
         
-        
-
 
 
 if __name__ == '__main__': 
