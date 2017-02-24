@@ -42,20 +42,10 @@ def get_vrt(idaho_id, ipe_id, node, level=0):
     return vrt
 
 
-def generate_vrt_template(idaho_id, ipe_id, node, level):
-    idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
+def generate_vrt_template(ipe_id, node, level):
     meta = get_ipe_metadata(ipe_id, node=node)
-
-    if level > 0:
-        rrds = meta["rrds"]
-        try:
-            idaho_id = rrds["reducedResolutionDataset"][level]["targetImage"]
-        except:
-            raise IndexError("Reduced level {} not available".format(level))
-
     image_md = meta['image']
     tfm = meta['georef']
-    #tfm = meta['warp']['targetGeoTransform']
     tile_size_x = image_md['tileXSize']
     tile_size_y = image_md['tileYSize']
 
@@ -69,7 +59,6 @@ def generate_vrt_template(idaho_id, ipe_id, node, level):
                                                                       tfm["scaleY"]]))
 
     paths = []
-    #for i in xrange(idaho_md["properties"]["image"]["numBands"]):
     for i in xrange(image_md["numBands"]):
         bidx = i+1
         band = ET.SubElement(vrt, "VRTRasterBand", {"dataType": NODE_DATA_TYPES.get(node, "Float32"), "band": str(bidx)})

@@ -7,7 +7,6 @@ from hashlib import sha256
 from itertools import chain
 
 NAMESPACE_UUID = uuid.NAMESPACE_DNS
-#NAMESPACE_UUID = uuid.uuid1(clock_seq=0)
 
 class ContentHashedDict(dict):
     @property
@@ -52,10 +51,9 @@ class Op(object):
         return self
 
     def _ipe_image_call(self, *args, **kwargs):
-        out = self(*[arg.ipe for arg in args], **kwargs)
-        #key = str(uuid.uuid4())
+        out = self(*[arg.ipe for arg in args])
         key = self._id
-        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out})
+        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out}, **kwargs)
         return ipe_img
 
     def graph(self):

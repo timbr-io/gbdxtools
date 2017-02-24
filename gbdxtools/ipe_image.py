@@ -76,23 +76,32 @@ class IpeImage(da.Array):
         self.interface = interface
 
     def __call__(self, idaho_id, node="toa_reflectance", **kwargs):
-        self._idaho_id = idaho_id
-        self._ipe_id = None
-        self._idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(idaho_id)).json()
+        obj = IpeImage(self.interface)
+        obj._idaho_id = idaho_id
+        obj._node_id = node
+        obj._level = 0
+        obj._idaho_md = None
+        obj._ipe_id = None
         if '_ipe_graphs' in kwargs:
-            self._ipe_graphs = kwargs['_ipe_graphs']
+            obj._ipe_graphs = kwargs['_ipe_graphs']
         else:
-            self._ipe_graphs = self._init_graphs()
-        self._bounds = self._parse_geoms(**kwargs)
-        self._node_id = node
-        self._graph_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(self.ipe.graph())))
-        self._level = 0
-        self._tile_size = kwargs.get('tile_size', 256)
-        with open(self.vrt) as f:
-            self._vrt = f.read()
-        self._cfg = self._config_dask(bounds=self._bounds)
-        super(IpeImage, self).__init__(**self._cfg)
-        return self
+            obj._ipe_graphs = obj._init_graphs()
+        if kwargs.get('_intermediate', False):
+            return obj
+        obj._bounds = obj._parse_geoms(**kwargs)
+        obj._graph_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(obj.ipe.graph())))
+        obj._tile_size = kwargs.get('tile_size', 256)
+        with open(obj.vrt) as f:
+            obj._vrt = f.read()
+        obj._cfg = obj._config_dask(bounds=obj._bounds)
+        super(IpeImage, obj).__init__(**obj._cfg)
+        return obj
+
+    @property
+    def idaho_md(self):
+        if self._idaho_md is None:
+            self._idaho_md = requests.get('http://idaho.timbr.io/{}.json'.format(self._idaho_id)).json()
+        return self._idaho_md
 
     @property
     def ipe(self):
@@ -111,18 +120,16 @@ class IpeImage(da.Array):
     @property
     def vrt(self):
         """ Generates a VRT for the full Idaho image from image metadata and caches locally """
-        #print self._idaho_id, self._graph_id, self.ipe.graph()['id']
         try:
             vrt = get_cached_vrt(self._idaho_id, self._graph_id, self._level)
         except NotFound:
-            print 'Not Found'
-            template = generate_vrt_template(self._idaho_id, self.ipe_id, self.ipe_node_id, self._level)
+            template = generate_vrt_template(self.ipe_id, self.ipe_node_id, self._level)
             vrt = put_cached_vrt(self._idaho_id, self._graph_id, self._level, template)
+
         return vrt
 
     def read(self, bands=None):
         """ Reads data from a dacsk array and returns the computed ndarray matching the given bands """
-        print 'fetching data'
         arr = self.compute(get=threaded_get)
         if bands is not None:
             arr = arr[bands, ...]
@@ -235,7 +242,7 @@ class IpeImage(da.Array):
             return None
 
     def _init_graphs(self):
-        meta = self._idaho_md["properties"]
+        meta = self.idaho_md["properties"]
         gains_offsets = calc_toa_gain_offset(meta)
         radiance_scales, reflectance_scales, radiance_offsets = zip(*gains_offsets)
 

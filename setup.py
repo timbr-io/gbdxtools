@@ -33,6 +33,7 @@ setup(name='gbdxtools',
                         'shapely',
                         'ephem',
                         'dask',
+                        'cloudpickle',
                         'rasterio==1.0a7'
                         ],
       setup_requires=['pytest-runner'],

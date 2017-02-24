@@ -84,7 +84,7 @@ class Image(object):
         if self._node == 'pansharpened' and pansharpen:
             ms = self.interface.ipeimage(intersections['WORLDVIEW_8_BAND']['imageId'])
             pan = self.interface.ipeimage(intersections['PAN']['imageId'])
-            return self._create_pansharpen(ms, pan)
+            return self._create_pansharpen(ms, pan, bbox=bbox, **kwargs)
         elif band_type in intersections:
             md = intersections[band_type]
             return self.interface.ipeimage(md['imageId'], bbox=bbox, **kwargs)
@@ -124,10 +124,10 @@ class Image(object):
             vrts.append(img.vrt)
         return vrts
 
-    def _create_pansharpen(self, ms, pan):
-        ms = self.ipe.Format(self.ipe.MultiplyConst(ms.ipe, constants=json.dumps([1000]*8)), dataType="1")
-        pan = self.ipe.Format(self.ipe.MultiplyConst(pan.ipe, constants=json.dumps([1000])), dataType="1")
-        return self.ipe.LocallyProjectivePanSharpen(ms, pan)
+    def _create_pansharpen(self, ms, pan, **kwargs):
+        ms = self.ipe.Format(self.ipe.MultiplyConst(ms, constants=json.dumps([1000]*8), _intermediate=True), dataType="1", _intermediate=True)
+        pan = self.ipe.Format(self.ipe.MultiplyConst(pan, constants=json.dumps([1000]), _intermediate=True), dataType="1", _intermediate=True)
+        return self.ipe.LocallyProjectivePanSharpen(ms, pan, **kwargs)
         
         
 
