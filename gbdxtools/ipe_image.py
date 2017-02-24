@@ -46,6 +46,7 @@ from gbdxtools.ipe.util import calc_toa_gain_offset
 from gbdxtools.ipe.graph import register_ipe_graph
 from gbdxtools.ipe.error import NotFound
 from gbdxtools.ipe.interface import Ipe
+from gbdxtools.auth import Interface
 ipe = Ipe()
 
 @delayed
@@ -74,30 +75,26 @@ class IpeImage(da.Array):
     """
       Dask based access to ipe based images (Idaho).
     """
-    def __init__(self, interface):
-        self.interface = interface
-
-    def __call__(self, idaho_id, node="toa_reflectance", **kwargs):
-        obj = IpeImage(self.interface)
-        obj._idaho_id = idaho_id
-        obj._node_id = node
-        obj._level = 0
-        obj._idaho_md = None
-        obj._ipe_id = None
+    def __init__(self, idaho_id, node="toa_reflectance", **kwargs):
+        self.interface = Interface.instance()
+        self._idaho_id = idaho_id
+        self._node_id = node
+        self._level = 0
+        self._idaho_md = None
+        self._ipe_id = None
         if '_ipe_graphs' in kwargs:
-            obj._ipe_graphs = kwargs['_ipe_graphs']
+            self._ipe_graphs = kwargs['_ipe_graphs']
         else:
-            obj._ipe_graphs = obj._init_graphs()
+            self._ipe_graphs = self._init_graphs()
         if kwargs.get('_intermediate', False):
-            return obj
-        obj._bounds = obj._parse_geoms(**kwargs)
-        obj._graph_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(obj.ipe.graph())))
-        obj._tile_size = kwargs.get('tile_size', 256)
-        with open(obj.vrt) as f:
-            obj._vrt = f.read()
-        obj._cfg = obj._config_dask(bounds=obj._bounds)
-        super(IpeImage, obj).__init__(**obj._cfg)
-        return obj
+            return self 
+        self._bounds = self._parse_geoms(**kwargs)
+        self._graph_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(self.ipe.graph())))
+        self._tile_size = kwargs.get('tile_size', 256)
+        with open(self.vrt) as f:
+            self._vrt = f.read()
+        self._cfg = self._config_dask(bounds=self._bounds)
+        super(IpeImage, self).__init__(**self._cfg)
 
     @property
     def idaho_md(self):
@@ -139,7 +136,7 @@ class IpeImage(da.Array):
 
     def aoi(self, **kwargs):
         """ Subsets the IpeImage by the given bounds """
-        return self.interface.ipeimage(self._idaho_id, **kwargs)
+        return IpeImage(self._idaho_id, **kwargs)
 
     @property
     def metadata(self):
@@ -272,7 +269,6 @@ class IpeImage(da.Array):
                 data = np.clip(data,0,1)
             plt.imshow(data,interpolation='nearest')   
         plt.show(block=False)
-
 
 
 if __name__ == '__main__':

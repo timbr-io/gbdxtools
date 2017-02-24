@@ -16,6 +16,12 @@ import gdal
 
 from gbdxtools.ipe.vrt import get_cached_vrt, put_cached_vrt, vrt_cache_key, IDAHO_CACHE_DIR
 from gbdxtools.ipe.error import NotFound
+from gbdxtools.ipe.interface import Ipe
+from gbdxtools.auth import Interface
+from gbdxtools.ipe_image import IpeImage
+from gbdxtools.catalog import Catalog
+from gbdxtools.idaho import Idaho
+
 
 
 band_types = {
@@ -30,11 +36,11 @@ class Image(object):
       Collects metadata on all image parts, groupd pan and ms bands from idaho
     """
 
-    def __init__(self, interface):
-        self.interface = interface
-        self.ipe = self.interface.ipe
-
-    def __call__(self, cat_id, band_type="MS", node="toa_reflectance", **kwargs):
+    def __init__(self, cat_id, band_type="MS", node="toa_reflectance", **kwargs):
+        self.interface = Interface.instance()
+        self.catalog = Catalog(self.interface)
+        self.idaho = Idaho(self.interface)
+        self.ipe = Ipe()
         self.cat_id = cat_id
         self._band_type = band_types[band_type]
         self._node = node
@@ -44,7 +50,6 @@ class Image(object):
             self._node = 'pansharpened'
         self._level = kwargs.get('level', 0)
         self._fetch_metadata()
-        return self
 
     @contextmanager
     def open(self, *args, **kwargs):
@@ -82,22 +87,22 @@ class Image(object):
 
         pansharpen = kwargs.get('pansharpen', self._pansharpen)
         if self._node == 'pansharpened' and pansharpen:
-            ms = self.interface.ipeimage(intersections['WORLDVIEW_8_BAND']['imageId'])
-            pan = self.interface.ipeimage(intersections['PAN']['imageId'])
+            ms = IpeImage(intersections['WORLDVIEW_8_BAND']['imageId'])
+            pan = IpeImage(intersections['PAN']['imageId'])
             return self._create_pansharpen(ms, pan, bbox=bbox, **kwargs)
         elif band_type in intersections:
             md = intersections[band_type]
-            return self.interface.ipeimage(md['imageId'], bbox=bbox, **kwargs)
+            return IpeImage(md['imageId'], bbox=bbox, **kwargs)
         else:
             print('band_type ({}) did not find a match in this image'.format(band_type))
             return None
 
     def _fetch_metadata(self):
-        props = self.interface.catalog.get(self.cat_id)['properties']
+        props = self.catalog.get(self.cat_id)['properties']
         f = loads(props['footprintWkt'])
         geom = f.__geo_interface__
-        idaho = self.interface.idaho.get_images_by_catid(self.cat_id)
-        parts = self.interface.idaho.describe_images(idaho)[self.cat_id]['parts']
+        idaho = self.idaho.get_images_by_catid(self.cat_id)
+        parts = self.idaho.describe_images(idaho)[self.cat_id]['parts']
         idaho = {k['identifier']: k for k in idaho['results']}
         props['bounds'] = f.bounds
         props['parts'] = []
@@ -115,12 +120,12 @@ class Image(object):
         vrts = []
         for part in self.metadata['properties']['parts']:
             if self._node == 'pansharpened':
-                ms = self.interface.ipeimage(part['WORLDVIEW_8_BAND']['imageId'])
-                pan = self.interface.ipeimage(part['PAN']['imageId'])
+                ms = IpeImage(part['WORLDVIEW_8_BAND']['imageId'])
+                pan = IpeImage(part['PAN']['imageId'])
                 return self._create_pansharpen(ms, pan)
             else:
                 md = part[self._band_type]
-                img = self.interface.ipeimage(md['imageId'])
+                img = IpeImage(md['imageId'])
             vrts.append(img.vrt)
         return vrts
 
