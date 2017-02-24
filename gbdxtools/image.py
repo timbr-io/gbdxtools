@@ -125,8 +125,8 @@ class Image(object):
         return vrts
 
     def _create_pansharpen(self, ms, pan):
-        ms = self.ipe.Format(self.ipe.MultiplyConst(ms, constants=json.dumps([1000]*8)), dataType="1")
-        pan = self.ipe.Format(self.ipe.MultiplyConst(pan, constants=json.dumps([1000])), dataType="1")
+        ms = self.ipe.Format(self.ipe.MultiplyConst(ms.ipe, constants=json.dumps([1000]*8)), dataType="1")
+        pan = self.ipe.Format(self.ipe.MultiplyConst(pan.ipe, constants=json.dumps([1000])), dataType="1")
         return self.ipe.LocallyProjectivePanSharpen(ms, pan)
         
         
