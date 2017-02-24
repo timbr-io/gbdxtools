@@ -12,7 +12,7 @@ import ephem
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
 
-import geoio.constants as constants
+import gbdxtools.ipe.constants as constants
 
 
 # StackOverflow: http://stackoverflow.com/questions/600268/mkdir-p-functionality-in-python
