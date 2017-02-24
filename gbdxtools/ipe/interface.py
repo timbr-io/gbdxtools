@@ -2,9 +2,9 @@ import uuid
 import json
 import types
 import copy
-import gbdxtools.ipe_image
 from hashlib import sha256
 from itertools import chain
+import gbdxtools as gbdx
 
 NAMESPACE_UUID = uuid.NAMESPACE_DNS
 
@@ -33,7 +33,7 @@ class Op(object):
         return str(uuid.uuid5(NAMESPACE_UUID, json.dumps(self._nodes)))
 
     def __call__(self, *args, **kwargs):
-        if len(args) > 0 and all([isinstance(arg, gbdxtools.ipe_image.IpeImage) for arg in args]):
+        if len(args) > 0 and all([isinstance(arg, gbdx.ipe_image.IpeImage) for arg in args]):
             return self._ipe_image_call(*args, **kwargs)
         self._nodes = [ContentHashedDict({"operator": self._operator,
                                           "_ancestors": [arg._id for arg in args], 
@@ -55,7 +55,7 @@ class Op(object):
             del kwargs['_intermediate']
         out = self(*[arg.ipe for arg in args], **kwargs)
         key = self._id
-        ipe_img = args[0].interface.ipeimage(args[0]._idaho_id, key, _ipe_graphs={key: out})
+        ipe_img = gbdx.ipe_image.IpeImage(args[0]._idaho_id, key, _ipe_graphs={key: out})
         return ipe_img
 
     def graph(self):
