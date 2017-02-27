@@ -6,11 +6,12 @@ Contact: chris.helm@digitalglobe.com
 from __future__ import print_function
 import xml.etree.cElementTree as ET
 from contextlib import contextmanager
+from collections import defaultdict
 import os
 import json
 
 from shapely.wkt import loads
-from shapely.geometry import box
+from shapely.geometry import box, shape
 import rasterio
 import gdal
 
@@ -19,7 +20,7 @@ from gbdxtools.ipe.error import NotFound
 from gbdxtools.ipe.interface import Ipe
 from gbdxtools.auth import Interface
 from gbdxtools.ipe_image import IpeImage
-from gbdxtools.catalog import Catalog
+from gbdxtools.vectors import Vectors
 from gbdxtools.idaho import Idaho
 
 
@@ -38,7 +39,7 @@ class Image(object):
 
     def __init__(self, cat_id, band_type="MS", node="toa_reflectance", **kwargs):
         self.interface = Interface.instance()
-        self.catalog = Catalog(self.interface)
+        self.vectors = Vectors(self.interface)
         self.idaho = Idaho(self.interface)
         self.ipe = Ipe()
         self.cat_id = cat_id
@@ -77,7 +78,7 @@ class Image(object):
         intersections = {}
         for part in self.metadata['properties']['parts']:
             for key, item in part.iteritems():
-                geom = box(*item['bounds'])
+                geom = box(*item['geometry'].bounds)
                 if geom.intersects(_area):
                     intersections[key] = item
 
@@ -87,45 +88,62 @@ class Image(object):
 
         pansharpen = kwargs.get('pansharpen', self._pansharpen)
         if self._node == 'pansharpened' and pansharpen:
-            ms = IpeImage(intersections['WORLDVIEW_8_BAND']['imageId'])
-            pan = IpeImage(intersections['PAN']['imageId'])
+            ms = IpeImage(intersections['WORLDVIEW_8_BAND']['properties']['idahoImageId'])
+            pan = IpeImage(intersections['PAN']['properties']['idahoImageId'])
             return self._create_pansharpen(ms, pan, bbox=bbox, **kwargs)
         elif band_type in intersections:
-            md = intersections[band_type]
-            return IpeImage(md['imageId'], bbox=bbox, **kwargs)
+            md = intersections[band_type]['properties']
+            return IpeImage(md['idahoImageId'], bbox=bbox, **kwargs)
         else:
             print('band_type ({}) did not find a match in this image'.format(band_type))
             return None
 
-    def _fetch_metadata(self):
-        props = self.catalog.get(self.cat_id)['properties']
-        f = loads(props['footprintWkt'])
-        geom = f.__geo_interface__
-        idaho = self.idaho.get_images_by_catid(self.cat_id)
-        parts = self.idaho.describe_images(idaho)[self.cat_id]['parts']
-        idaho = {k['identifier']: k for k in idaho['results']}
-        props['bounds'] = f.bounds
-        props['parts'] = []
-        for p, info in parts.iteritems():
-            part = {}
-            for key, img in info.iteritems():
-                if img['id'] in idaho:
-                    part[key] = idaho[img['id']]['properties']
-                    part[key]['bounds'] = loads(idaho[img['id']]['properties']['footprintWkt']).bounds
-            props['parts'].append(part)
+    def _query_vectors(self, query, aoi=None):
+        if aoi is None:
+            aoi = "POLYGON((-180.0 90.0,180.0 90.0,180.0 -90.0,-180.0 -90.0,-180.0 90.0))"
+        return self.vectors.query(aoi, query=query)
 
-        self.metadata = {'properties': props, 'geometry': geom} 
+    def _fetch_metadata(self):
+        query = 'item_type:DigitalGlobeAcquisition AND attributes.catalogID:{}'.format(self.cat_id)
+        props = self._query_vectors(query)
+        if len(props) == 0:
+            print('Could not find image metadata for the given catalog id')
+            return
+
+        geom = shape(props[0]['geometry'])
+        attrs = props[0]['properties']['attributes']
+        query = 'item_type:IDAHOImage AND attributes.catalogID:{}'.format(self.cat_id)
+        results = self._query_vectors(query)
+        
+        # group idaho images on identifiers
+        grouped = defaultdict(list)
+        for idaho in results:
+            vid = idaho['properties']['attributes']['vendorDatasetIdentifier']
+            grouped[vid].append(idaho)
+
+        # stash parts on metatada
+        attrs['parts'] = []
+        for key, parts in grouped.iteritems():
+            part = {}
+            for p in parts:
+                attr = p['properties']['attributes']
+                part[attr['colorInterpretation']] = {'properties': attr, 'geometry': shape(p['geometry'])}
+            attrs['parts'].append(part)
+
+        self.metadata = {'properties': attrs, 'geometry': geom}
+
 
     def _collect_vrts(self):
         vrts = []
         for part in self.metadata['properties']['parts']:
             if self._node == 'pansharpened':
-                ms = IpeImage(part['WORLDVIEW_8_BAND']['imageId'])
-                pan = IpeImage(part['PAN']['imageId'])
-                return self._create_pansharpen(ms, pan)
+                ms = IpeImage(part['WORLDVIEW_8_BAND']['properties']['idahoImageId'])
+                pan = IpeImage(part['PAN']['properties']['idahoImageId'])
+                img = self._create_pansharpen(ms, pan)
             else:
-                md = part[self._band_type]
-                img = IpeImage(md['imageId'])
+                md = part[self._band_type]['properties']
+                img = IpeImage(md['idahoImageId'])
+            
             vrts.append(img.vrt)
         return vrts
 
@@ -143,6 +161,7 @@ if __name__ == '__main__':
     gbdx = Interface()
 
     cat_id = '104001001838A000'
+    cat_id = '104001000D7A8600'
     img = gbdx.image(cat_id, pansharpen=True)
 
     #print(json.dumps(img.metadata, indent=4))
